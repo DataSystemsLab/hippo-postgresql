@@ -5,15 +5,12 @@
  *      Author: sparkadmin
  */
 #include "postgres.h"
-#include "fmgr.h"
-#include "nodes/execnodes.h"
-//#include "access/xlogreader.h"
-//#include "lib/stringinfo.h"
-//#include "storage/bufpage.h"
-//#include "storage/buf.h"
+#include "access/xlogreader.h"
+#include "lib/stringinfo.h"
+#include "storage/bufpage.h"
+#include "storage/buf.h"
 #include "utils/relcache.h"
-//#include "access/itup.h"
-
+#include "access/itup.h"
 #ifndef GSIN_H
 #define GSIN_H
 
@@ -46,7 +43,7 @@ typedef struct searchResult {
 
 #define HISTOGRAM_PER_PAGE 650
 
-#define GSIN_DEFAULT_MAX_PAGES_PER_RANGE 20
+#define GSIN_DEFAULT_MAX_PAGES_PER_RANGE 128
 #define GsinGetMaxPagesPerRange(relation) \
 	((relation)->rd_options ? \
 	 ((GsinOptions *) (relation)->rd_options)->maxPagesPerRange : \
@@ -126,14 +123,13 @@ typedef struct GsinBuildState
 	BlockNumber gs_MaxPages;
 	BlockNumber gs_PageStart;
 	BlockNumber gs_PageNum; /* The last page we have */
-	BlockNumber gs_currentPage; /* Which parent page we are working on now */
+	BlockNumber gs_currentPage; /* Which page we are working on now */
 	//GridList gs_gridList;
 	int16 gs_length; /* This length records the real length of a current grid list */
 	int16 gs_grids[10000]; /* This array pre-allocates a large enough size (10000) to accomodate all possible grids */
 //	GsinTupleLong gs_state_tuplelong; /* This pointer points to the GsinTuple with grid list*/
 //	GsinTuple *gs_state_tuple; /* This pointer points to the GsinTuple without grid list */
-//	Buffer		gs_currentInsertBuf;/* The new index tuple is to be inserted into this buffer */
-	BlockNumber gs_currentInsertBlock;
+	Buffer		gs_currentInsertBuf;/* The new index tuple is to be inserted into this buffer */
 	Page gs_currentInsertPage;
 	Datum *histogramBounds;
 	int histogramBoundsNum;
@@ -153,7 +149,7 @@ typedef struct GsinBuildState
 /*
  * The following parameters are used to control the sorted lists
  */
-	GsinItemPointer gsinItemPointer[1000000];
+	GsinItemPointer gsinItemPointer[100000000];
 	int itemPointerMemSize;
 	BlockNumber sorted_list_pages;
 	//uint32_t gs_length;
@@ -193,18 +189,18 @@ typedef struct GsinScanState
 
 
 /*
- * prototypes for functions in gsin.c (external entry points for BRIN)
+ * prototypes for functions in brin.c (external entry points for BRIN)
  */
+extern Datum gsinbeginscan(PG_FUNCTION_ARGS);
 extern Datum gsinbuild(PG_FUNCTION_ARGS);
 extern Datum gsinbuildempty(PG_FUNCTION_ARGS);
-extern Datum gsinbeginscan(PG_FUNCTION_ARGS);
 extern Datum gsingetbitmap(PG_FUNCTION_ARGS);
 extern Datum gsinendscan(PG_FUNCTION_ARGS);
 extern Datum gsinrescan(PG_FUNCTION_ARGS);
 extern Datum gsinoptions(PG_FUNCTION_ARGS);
-//extern void gsin_desc(StringInfo buf, XLogReaderState *record);
-//extern const char *gsin_identify(uint8 info);
-//extern void gsin_redo(XLogReaderState *record);
+extern void gsin_desc(StringInfo buf, XLogReaderState *record);
+extern const char *gsin_identify(uint8 info);
+extern void gsin_redo(XLogReaderState *record);
 extern Datum gsininsert(PG_FUNCTION_ARGS);
 extern Datum gsinbulkdelete(PG_FUNCTION_ARGS);
 extern Datum gsinvacuumcleanup(PG_FUNCTION_ARGS);
