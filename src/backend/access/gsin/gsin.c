@@ -124,13 +124,12 @@ static void copy_gsin_mem_tuple(GsinTupleLong *newTuple,GsinTupleLong* oldTuple)
  */
 
 
-static BlockNumber
-gsin_getinsertblock(Relation irel)
+static Buffer
+gsin_getinsertbuffer(Relation irel)
 {
 	Buffer buffer;
 	Page page;
 	Size pageSize;
-	BlockNumber insertBlockNumber;
 	buffer = ReadBuffer(irel, P_NEW);
 	//elog(LOG, "Initialized buffer at subfunc");
 	if(buffer==NULL)
@@ -138,8 +137,6 @@ gsin_getinsertblock(Relation irel)
 		elog(LOG, "Initialized buffer NULL at subfunc");
 	}
 	LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
-	START_CRIT_SECTION();
-	insertBlockNumber=BufferGetBlockNumber(buffer);
 	//elog(LOG, "Locked buffer");
 	pageSize = BufferGetPageSize(buffer);
 	page = BufferGetPage(buffer);
@@ -154,8 +151,7 @@ gsin_getinsertblock(Relation irel)
 	END_CRIT_SECTION();
 	UnlockReleaseBuffer(buffer);
 	//elog(LOG, "Release buffer at subfunc");
-	//return buffer;
-	return insertBlockNumber;
+	return buffer;
 
 }
 /*
@@ -163,7 +159,7 @@ gsin_getinsertblock(Relation irel)
  */
 IndexTupleData * gsin_form_indextuple(GsinTupleLong *memTuple, Size *memlen, int histogramBoundsNum)
 {
-	elog(LOG,"Start to form index tuple");
+//	elog(LOG,"Start to form index tuple");
 	char	   *ptr,
 			   *ret,
 			   *diskGridSet,
@@ -194,12 +190,12 @@ IndexTupleData * gsin_form_indextuple(GsinTupleLong *memTuple, Size *memlen, int
 		bitmap_set(gridBitset,memTuple->grids[i]);
 	}*/
 	//bitmap_set(gridBitset,histogramBoundsNum-1);
-	elog(LOG,"Set value is done");
+	//elog(LOG,"Set value is done");
 
 	compressedBitset=bitmap_compress(memTuple->originalBitset);
-	elog(LOG,"Compressing is done");
+//	elog(LOG,"Compressing is done");
 	bitmapLength=estimate_ewah_size(compressedBitset);
-	elog(LOG,"Compression size estimation is done %d",bitmapLength);
+//	elog(LOG,"Compression size estimation is done %d",bitmapLength);
 	//diskGridSet=diskGridSetAccumulator=palloc(bitmapLength);
 	//elog(LOG,"Assign memory for serialization");
 	//ewah_serialize(compressedBitset,diskGridSetAccumulator);
@@ -219,7 +215,7 @@ IndexTupleData * gsin_form_indextuple(GsinTupleLong *memTuple, Size *memlen, int
 	//memcpy(ptr,diskGridSet,bitmapLength);
 	//ptr+=bitmapLength;
 	ewah_serialize(compressedBitset,ptr);
-	elog(LOG,"Serialization is done");
+//	elog(LOG,"Serialization is done");
 	//elog(LOG,"Append bitmap to disktuple");
 	//pfree(diskGridSet);
 	//elog(LOG,"free diskGridSet");
@@ -231,7 +227,7 @@ IndexTupleData * gsin_form_indextuple(GsinTupleLong *memTuple, Size *memlen, int
 
 //	elog(LOG,"free gridBitset");
 	ewah_free(compressedBitset);
-	elog(LOG,"free compressedBitset");
+//	elog(LOG,"free compressedBitset");
 //	pfree(memTuple);
 //	elog(LOG,"End to build one index tuple");
 	return (IndexTupleData *) ret;
@@ -245,12 +241,11 @@ gsin_doinsert(GsinBuildState *buildstate)//, Relation idxrel, BlockNumber pagesP
 			 // GsinTupleLong tup, Size itemsz)
 {
 //	elog(LOG, "Start to insert, this tuple volume is %d",buildstate->gs_PageNum);
-
 	Page		page;
 	OffsetNumber off,maxoff;
 	BlockIdData blkId;
 //	ItemPointer itemPointer=palloc(SizeOfIptrData);
-	Buffer buffer=ReadBuffer(buildstate->gs_irel,buildstate->gs_currentInsertBlock);
+	Buffer buffer=buildstate->gs_currentInsertBuf;
 //=buildstate->gs_currentPage;
 
 	GsinTupleLong *memTuple=build_real_gsin_tuplelong(buildstate);
@@ -274,9 +269,7 @@ gsin_doinsert(GsinBuildState *buildstate)//, Relation idxrel, BlockNumber pagesP
 		//LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
 		if (PageGetFreeSpace(BufferGetPage(buffer)) < itemsz)
 		{
-			ReleaseBuffer(buffer);
 			buffer = InvalidBuffer;
-
 			//elog(LOG, "page size in this buffer is not enough~~");
 		}
 		//LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
@@ -290,8 +283,8 @@ gsin_doinsert(GsinBuildState *buildstate)//, Relation idxrel, BlockNumber pagesP
 	{
 		//elog(LOG, "This buffer is invalid~~");
 		//LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
-		buildstate->gs_currentInsertBlock=gsin_getinsertblock(buildstate->gs_irel);
-		buffer = ReadBuffer(buildstate->gs_irel,buildstate->gs_currentInsertBlock);//, InvalidBuffer, itemsz, &extended);
+		buffer = gsin_getinsertbuffer(buildstate->gs_irel);//, InvalidBuffer, itemsz, &extended);
+		buildstate->gs_currentInsertBuf=buffer;
 		if(buffer==NULL)
 		{
 			elog(ERROR, "Try to get valid buffer but failed!");
@@ -334,14 +327,13 @@ gsin_doinsert(GsinBuildState *buildstate)//, Relation idxrel, BlockNumber pagesP
 	END_CRIT_SECTION();
 
 	/* Tuple is firmly on buffer; we can release our locks */
-	UnlockReleaseBuffer(buffer);
+	LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
 	/*
 	 * Free serialized tuple
 	 */
 	pfree((char *)data);
 	//ReleaseBuffer(buffer);
 //	elog(LOG, "One insertion is done");
-	;
 	return off;
 }
 
@@ -540,20 +532,17 @@ gsinbuildCallback(Relation index,
 		elog(LOG,"Got one dead tuple");
 	}
 
+
 }
 Datum
 gsinbuild(PG_FUNCTION_ARGS)
 {
-//elog(LOG,"Start gsin build");
-
 	/*
 	 * This is some routine declarations for variables
 	 */
-		IndexInfo  *indexInfo = (IndexInfo *) PG_GETARG_POINTER(2);
 		Relation	heap = (Relation) PG_GETARG_POINTER(0);
 		Relation	index = (Relation) PG_GETARG_POINTER(1);
-
-//		Assert(indexInfo!=NULL);
+		IndexInfo  *indexInfo = (IndexInfo *) PG_GETARG_POINTER(2);
 		IndexBuildResult *result;
 		double		reltuples;
 		GsinBuildState buildstate;
@@ -571,9 +560,8 @@ gsinbuild(PG_FUNCTION_ARGS)
 		/*
 		 * GSIN option: max pages per range
 		 */
-//		elog(LOG,"bug start");
-		buildstate.gs_MaxPages=20;//GsinGetMaxPagesPerRange(index);
-		BlockNumber sorted_list_pages=((RelationGetNumberOfBlocks(heap)/((buildstate.gs_MaxPages*2)*SORTED_LIST_TUPLES_PER_PAGE))+1);
+		buildstate.gs_MaxPages=GsinGetMaxPagesPerRange(index);
+		BlockNumber sorted_list_pages=((RelationGetNumberOfBlocks(heap)/((1)*SORTED_LIST_TUPLES_PER_PAGE))+1);
 //		elog(LOG,"Max pages per range is %d",buildstate.gs_MaxPages);
 		/*
 		 * GSIN Only supports one column as the key
@@ -640,12 +628,9 @@ gsinbuild(PG_FUNCTION_ARGS)
 			elog(LOG, "Initialized buffer NULL");
 		}
 		LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
-		START_CRIT_SECTION();
 //		elog(LOG, "Locked buffer");
 		pageSize = BufferGetPageSize(buffer);
 		page = BufferGetPage(buffer);
-		buildstate.gs_currentInsertBlock=BufferGetBlockNumber(buffer);
-		buildstate.gs_currentInsertPage=page;
 		if(page==NULL)
 		{
 			elog(LOG, "Initialized page NULL");
@@ -676,7 +661,8 @@ gsinbuild(PG_FUNCTION_ARGS)
 		buildstate.gs_scanpage=0;
 //		buildstate.gs_state_tuplelong=build_gsin_tuplelong();
 //		buildstate.gs_state_tuple=build_gsin_tuple();
-
+		buildstate.gs_currentInsertBuf=buffer;
+		buildstate.gs_currentInsertPage=page;
 		buildstate.lengthcounter=0;
 		//elog(LOG, "Initialize gsin_buildstate");
 		buildstate.histogramBounds=histogramBounds;
@@ -698,13 +684,11 @@ gsinbuild(PG_FUNCTION_ARGS)
 //		buildstate.itemPointers=palloc(buildstate.itemPointerMemSize*ITEM_POINTER_MEM_UNIT*ItemPointerSize);
 		//buildstate.gridCheckFlag=palloc(sizeof(bool)*(histogramBoundsNum-1));
 //		elog(LOG, "Assign histogram value %d",histogramBoundsNum);
-
-
 		/* build the index */
 		reltuples=IndexBuildHeapScan(heap, index, indexInfo, false,
 				   gsinbuildCallback, (void *) &buildstate);
 
-//		elog(LOG,"Bug end");
+
 //		elog(LOG,"Buildcallback is done");
 		/*
 		 * Finish the last index tuple whose volume is less than the maximum page
@@ -725,10 +709,9 @@ gsinbuild(PG_FUNCTION_ARGS)
 			//}
 		}
 
-//		page=PageGetContents(BufferGetPage(ReadBuffer(buildstate.gs_irel,buildstate.gs_currentInsertBlock)));
+		page=PageGetContents(BufferGetPage(buildstate.gs_currentInsertBuf));
 //		elog(LOG, "Build is about to end, last page offset is %d",PageGetMaxOffsetNumber(page));
 		put_histogram(index,0,histogramBoundsNum,histogramBounds);
-
 		SortedListInialize(index,&buildstate,histogramPages+1);
 
 		/*
@@ -746,7 +729,6 @@ gsinbuild(PG_FUNCTION_ARGS)
 //		elog(LOG,"Scan heap tuple %d , create index tuple %d, scaned page %d",buildstate.gs_numtuples,buildstate.gs_indexnumtuples,buildstate.gs_scanpage);
 
 		elog(LOG,"Scan heap tuple %d , create index tuple %d, average grid list length %f grid list density %f scaned page %d",buildstate.gs_numtuples,buildstate.gs_indexnumtuples,buildstate.lengthcounter*1.0/buildstate.gs_indexnumtuples,(buildstate.lengthcounter*1.0/buildstate.gs_indexnumtuples)/(buildstate.histogramBoundsNum-1),RelationGetNumberOfBlocks(heap));
-
 		PG_RETURN_POINTER(result);
 }
 /*
@@ -755,7 +737,6 @@ gsinbuild(PG_FUNCTION_ARGS)
 Datum
 gsinbuildempty(PG_FUNCTION_ARGS)
 {
-//elog(LOG,"Start gsin buildempty");
 	Relation	index = (Relation) PG_GETARG_POINTER(0);
 	int i;
 	Buffer		buffer;
@@ -766,9 +747,8 @@ gsinbuildempty(PG_FUNCTION_ARGS)
 		LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
 		START_CRIT_SECTION();
 		gsininit_special(buffer);
-//		elog(LOG,"I inited block %d",BufferGetBlockNumber(buffer));
+		elog(LOG,"I inited block %d",BufferGetBlockNumber(buffer));
 		MarkBufferDirty(buffer);
-		log_newpage_buffer(buffer,false);
 		END_CRIT_SECTION();
 		UnlockReleaseBuffer(buffer);
 	}
@@ -815,7 +795,6 @@ void SortedListInialize(Relation index,GsinBuildState *gsinBuildState,BlockNumbe
 {
 //	elog(LOG,"Start to put sorted list");
 //	char* diskTuple;
-//	elog(LOG,"Bug start");
 	Size itemSize;
 	BlockNumber maxBlock,currentBlock;
 	Offset off;
@@ -838,7 +817,6 @@ void SortedListInialize(Relation index,GsinBuildState *gsinBuildState,BlockNumbe
 	}
 
 	}*/
-//	elog(LOG,"Bug end");
 
 }
 void SortedListFormDiskTuple(GsinBuildState *gsinBuildState,BlockNumber currentBlock,BlockNumber maxBlock,int remainder,BlockNumber startBlock)
@@ -850,11 +828,11 @@ void SortedListFormDiskTuple(GsinBuildState *gsinBuildState,BlockNumber currentB
 	Buffer currentBuffer;
 	Page page;
 	int iterationTimes;
-	diskTuple=palloc(sizeof(int));
+
 	currentBuffer=ReadBuffer(gsinBuildState->gs_irel,currentBlock);
 	page=BufferGetPage(currentBuffer);
 	LockBuffer(currentBuffer, BUFFER_LOCK_EXCLUSIVE);
-
+	START_CRIT_SECTION();
 	if(page==NULL)
 	{
 		elog(LOG,"I got NULL page for sorted list");
@@ -864,7 +842,7 @@ void SortedListFormDiskTuple(GsinBuildState *gsinBuildState,BlockNumber currentB
 		/*
 		 * This is the first tuple
 		 */
-//		elog(LOG,"Current list block is %d",currentBlock);
+		elog(LOG,"Current list block is %d",currentBlock);
 		/*
 		 * Put the first element on the first page
 		 */
@@ -872,17 +850,16 @@ void SortedListFormDiskTuple(GsinBuildState *gsinBuildState,BlockNumber currentB
 
 
 
-
+		diskTuple=palloc(sizeof(int));
 		memcpy(diskTuple,&(gsinBuildState->gs_indexnumtuples),sizeof(int));
-		START_CRIT_SECTION();
-//		elog(LOG,"Going to put total index tuples number %d on disk",gsinBuildState->gs_indexnumtuples);
+		elog(LOG,"Going to put total index tuples number %d on disk",gsinBuildState->gs_indexnumtuples);
 		tempOff=PageAddItem(page, (Item) diskTuple, sizeof(int), InvalidOffsetNumber,false, false);
 //		elog(LOG,"I have put the total tuple number on disk");
 		tempOff=PageAddItem(page, (Item) (&gsinBuildState->sorted_list_pages), sizeof(BlockNumber), InvalidOffsetNumber,false, false);
-//		elog(LOG,"Succeed to put it on disk offset %d",tempOff);
+		elog(LOG,"Succeed to put it on disk offset %d",tempOff);
 //		pfree(diskTuple);
 //		MarkBufferDirty(currentBuffer);
-		END_CRIT_SECTION();
+//		END_CRIT_SECTION();
 //		UnlockReleaseBuffer(currentBuffer);
 		//put_sorted_list_pages(gsinBuildState->gs_irel,gsinBuildState->sorted_list_pages);
 	}
@@ -912,15 +889,14 @@ void SortedListFormDiskTuple(GsinBuildState *gsinBuildState,BlockNumber currentB
 			len+=sizeof(OffsetNumber);*/
 			serializeSortedListTuple(&(gsinBuildState->gsinItemPointer[(currentBlock-startBlock)*SORTED_LIST_TUPLES_PER_PAGE+i]),diskTuple);
 //			elog(LOG,"this page has free space %d",PageGetFreeSpace(page));
-			START_CRIT_SECTION();
 			testOffsetNumber=PageAddItem(page, (Item) diskTuple, ItemPointerSize, InvalidOffsetNumber,false, false);
-			END_CRIT_SECTION();
+
 //			elog(LOG,"I am putting sorted list %d on block %d offset%d its value block %d off %d",i,currentBlock,testOffsetNumber,gsinBuildState->gsinItemPointer[(currentBlock-startBlock)*SORTED_LIST_TUPLES_PER_PAGE+i].blockNumber,gsinBuildState->gsinItemPointer[(currentBlock-startBlock)*SORTED_LIST_TUPLES_PER_PAGE+i].ip_posid);
 
 //			pfree(diskTuple);
 			}
 			MarkBufferDirty(currentBuffer);
-
+			END_CRIT_SECTION();
 			UnlockReleaseBuffer(currentBuffer);
 
 }
@@ -1232,7 +1208,7 @@ void update_sorted_list_tuple(Relation idxrel,int index_tuple_id,BlockNumber dis
 	memcpy(sortedListDiskTuple+len,&(gsinItemPointer.ip_posid),sizeof(OffsetNumber));
 	len+=sizeof(OffsetNumber);*/
 	serializeSortedListTuple(&gsinItemPointer,sortedListDiskTuple);
-//	elog(LOG,"update list block %d off %d new pointer point block %d off %d",listBlock+startBlock,listOffset,gsinItemPointer.blockNumber,gsinItemPointer.ip_posid);
+	elog(LOG,"update list block %d off %d new pointer point block %d off %d",listBlock+startBlock,listOffset,gsinItemPointer.blockNumber,gsinItemPointer.ip_posid);
 	tempOff=PageAddItem(page, (Item) sortedListDiskTuple, ItemPointerSize, listOffset,true, false);
 	pfree(sortedListDiskTuple);
 	MarkBufferDirty(buffer);
@@ -1264,7 +1240,7 @@ void get_sorted_list_pages(Relation idxrel,BlockNumber *sorted_list_pages,BlockN
 	char* diskTuple;
 	LockBuffer(buffer,BUFFER_LOCK_SHARE);
 	diskTuple=(Item)PageGetItem(page,PageGetItemId(page,2));
-	//END_CRIT_SECTION();
+	END_CRIT_SECTION();
 	UnlockReleaseBuffer(buffer);
 	memcpy(sorted_list_pages,diskTuple,sizeof(BlockNumber));
 }
@@ -1475,7 +1451,7 @@ bool binary_search_sorted_list(Relation heaprel,Relation idxrel,int totalIndexTu
 			min=guess+1;
 		}
 	}
-//	elog(LOG,"I guessed %d times and find %d",guessTimes,equalFlag);
+	elog(LOG,"I guessed %d times and find %d",guessTimes,equalFlag);
 	if(equalFlag<0)
 	{
 		return false;
@@ -1499,7 +1475,7 @@ bool binary_search_sorted_list(Relation heaprel,Relation idxrel,int totalIndexTu
 Datum
 gsininsert(PG_FUNCTION_ARGS)
 {
-//	elog(LOG,"gsin insert start");
+	elog(LOG,"gsin insert start");
 	Relation	idxRel = (Relation) PG_GETARG_POINTER(0);
 	Datum	   *values = (Datum *) PG_GETARG_POINTER(1);
 	bool	   *nulls = (bool *) PG_GETARG_POINTER(2);
@@ -1580,30 +1556,30 @@ gsininsert(PG_FUNCTION_ARGS)
 		/*
 		 * The inserted heap tuple belongs to one index tuple
 		 */
-//		elog(LOG, "Seek flag is true, match grid is %d",histogramMatchData.index);
+	//	elog(LOG, "Seek flag is true, match grid is %d",histogramMatchData.index);
 
 		if(bitmap_get(gsinTupleLong.originalBitset,histogramMatchData.index)==false)
 		{
 			/*
 			 * Before update the memory tuple,copy the old memory tuple
 			 */
-//			elog(LOG, "We need to update index");
+		//	elog(LOG, "We need to update index");
 			IndexTupleData *newDiskTuple;
 
 			Size oldsize,newsize;
 			bool samePageUpdate=true;
 			GsinTupleLong newGsinTupleLong;
 			copy_gsin_mem_tuple(&newGsinTupleLong,&gsinTupleLong);
-//			elog(LOG, "Old mem tuple start %d volume %d delete flag %d",gsinTupleLong.gs_PageStart,gsinTupleLong.gs_PageNum,gsinTupleLong.deleteFlag);
+	//		elog(LOG, "Old mem tuple start %d volume %d delete flag %d",gsinTupleLong.gs_PageStart,gsinTupleLong.gs_PageNum,gsinTupleLong.deleteFlag);
 			gsin_form_indextuple(&gsinTupleLong,&oldsize,histogramBoundsNum);
-//			elog(LOG, "form one old index disk tuple");
+	//		elog(LOG, "form one old index disk tuple");
 			bitmap_set(newGsinTupleLong.originalBitset,histogramMatchData.index);
-//			elog(LOG, "update mem tuple");
+	//		elog(LOG, "update mem tuple");
 			/*
 			 *If gsin can do samepage update, go ahead and do it.If not, get new buffer, new page and insert them.
 			 */
 			newDiskTuple=gsin_form_indextuple(&newGsinTupleLong,&newsize,histogramBoundsNum);
-//			elog(LOG, "form one new index disk tuple");
+	//		elog(LOG, "form one new index disk tuple");
 			/*
 			 * Check whether current index page has enough space. If so, go ahead and put it on disk.
 			 * Otherwise, ask for new buffer and page.
@@ -1629,7 +1605,7 @@ gsininsert(PG_FUNCTION_ARGS)
 				/*
 				 * Do samepage update
 				 */
-//				elog(LOG, "do same page update");
+				//elog(LOG, "do same page update");
 				OffsetNumber testOff;
 				page=BufferGetPage(buffer);
 				LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
@@ -1677,7 +1653,7 @@ gsininsert(PG_FUNCTION_ARGS)
 				if(PageGetFreeSpace(newInsertPage)<newsize)
 				{
 					ReleaseBuffer(newInsertBuffer);
-					gsin_getinsertblock(idxRel);
+					gsin_getinsertbuffer(idxRel);
 					newInsertBuffer=ReadBuffer(idxRel,totalblocks);
 					newInsertPage = BufferGetPage(newInsertBuffer);
 
@@ -1710,7 +1686,7 @@ gsininsert(PG_FUNCTION_ARGS)
 					MarkBufferDirty(currentBuffer);
 					END_CRIT_SECTION();
 					UnlockReleaseBuffer(currentBuffer);
-					gsin_getinsertblock(idxRel);
+					gsin_getinsertbuffer(idxRel);
 					newInsertBuffer=ReadBuffer(idxRel,totalblocks);
 					newBlockNumber=totalblocks;
 					newInsertPage = BufferGetPage(newInsertBuffer);
@@ -1775,7 +1751,7 @@ gsininsert(PG_FUNCTION_ARGS)
 //		elog(LOG,"The volume of the last tuple is %d histogramnum %d percent %d",gsinTupleLong.deleteFlag,histogramBoundsNum,GsinGetMaxPagesPerRange(idxRel));
 		if((gsinTupleLong.deleteFlag*1.0/histogramBoundsNum-1)>=(GsinGetMaxPagesPerRange(idxRel)*1.00/100))
 		{
-//			elog(LOG, "The last index tuple is full. We need to insert one more");
+			elog(LOG, "The last index tuple is full. We need to insert one more");
 			/*
 			 * Full. Keep the last index tuple there and create new buffer, page and last index tuple.
 			 */
@@ -1799,7 +1775,7 @@ gsininsert(PG_FUNCTION_ARGS)
 			if(PageGetFreeSpace(newInsertPage)<itemsize)
 			{
 				ReleaseBuffer(newInsertBuffer);
-				gsin_getinsertblock(idxRel);
+				gsin_getinsertbuffer(idxRel);
 				newInsertBuffer=ReadBuffer(idxRel,totalblocks);
 				newInsertPage=BufferGetPage(newInsertBuffer);
 			}
@@ -1889,7 +1865,7 @@ gsininsert(PG_FUNCTION_ARGS)
 					if(PageGetFreeSpace(newInsertPage)<newsize)
 					{
 						ReleaseBuffer(newInsertBuffer);
-						newInsertBuffer=ReadBuffer(idxRel,gsin_getinsertblock(idxRel));
+						newInsertBuffer=gsin_getinsertbuffer(idxRel);
 						newInsertPage = BufferGetPage(newInsertBuffer);
 					}
 					newBlockNumber=BufferGetBlockNumber(newInsertBuffer);
@@ -1912,7 +1888,7 @@ gsininsert(PG_FUNCTION_ARGS)
 					MarkBufferDirty(currentBuffer);
 					END_CRIT_SECTION();
 					UnlockReleaseBuffer(currentBuffer);
-					newInsertBuffer=ReadBuffer(idxRel,gsin_getinsertblock(idxRel));
+					newInsertBuffer=gsin_getinsertbuffer(idxRel);
 					newInsertPage = BufferGetPage(newInsertBuffer);
 					newBlockNumber=BufferGetBlockNumber(newInsertBuffer);
 					LockBuffer(newInsertBuffer, BUFFER_LOCK_EXCLUSIVE);
@@ -1939,7 +1915,7 @@ gsininsert(PG_FUNCTION_ARGS)
 	 *	Update the disk tuple
 	 */
 	free_attstatsslot(get_atttype(heapInfo->indrelid, attrNum),histogramBounds,histogramBoundsNum,NULL,0);
-//	elog(LOG,"gsin insert stop");
+	elog(LOG,"gsin insert stop");
 	return BoolGetDatum(false);
 }
 
@@ -1954,7 +1930,7 @@ gsininsert(PG_FUNCTION_ARGS)
 Datum
 gsinbulkdelete(PG_FUNCTION_ARGS)
 {
-//	elog(LOG,"Start one bulkdelete");
+	elog(LOG,"Start one bulkdelete");
 	/* other arguments are not currently used */
 	IndexVacuumInfo *info = (IndexVacuumInfo *) PG_GETARG_POINTER(0);
 	IndexBulkDeleteResult *stats = (IndexBulkDeleteResult *) PG_GETARG_POINTER(1);
@@ -1986,7 +1962,7 @@ gsinbulkdelete(PG_FUNCTION_ARGS)
 	histogramTuple=SearchSysCache2(STATRELATTINH,ObjectIdGetDatum(heapInfo->indrelid),Int16GetDatum(attrNum));
 	if (HeapTupleIsValid(histogramTuple))
 	{
-//		elog(LOG, "Got stattuple");
+		elog(LOG, "Got stattuple");
 		get_attstatsslot(histogramTuple,
 				get_atttype(heapInfo->indrelid, attrNum),get_atttypmod(heapInfo->indrelid,attrNum),
 						STATISTIC_KIND_HISTOGRAM, InvalidOid,
@@ -2007,7 +1983,7 @@ gsinbulkdelete(PG_FUNCTION_ARGS)
 /*
  * First loop, traverse index
  */
-//	elog(LOG,"Start to traverse %d",RelationGetNumberOfBlocks(idxRelation));
+	elog(LOG,"Start to traverse %d",RelationGetNumberOfBlocks(idxRelation));
 
 	for(idxBlkNum=startblock;idxBlkNum<RelationGetNumberOfBlocks(idxRelation);idxBlkNum++)
 	{
@@ -2157,12 +2133,12 @@ gsinbulkdelete(PG_FUNCTION_ARGS)
 
 				continue;
 			}
-//			elog(LOG,"I should not reach this pointer");
+			elog(LOG,"I should not reach this pointer");
 		}
 		UnlockReleaseBuffer(currentBuffer);
 	}
 	relation_close(heapRelation, AccessShareLock);
-//	elog(LOG,"Finish one bulkdelete");
+	elog(LOG,"Finish one bulkdelete");
 	PG_RETURN_POINTER(stats);
 }
 
@@ -2217,7 +2193,7 @@ void gsin_form_memtuple(GsinTupleLong *gsinTupleLong,IndexTuple diskTuple,Size *
 	int16 deleteFlag=0;
 	*memlen = 0;
 	compressedBitset=ewah_new();
-//	elog(LOG,"Start form memory tuple");
+	//elog(LOG,"Start form memory tuple");
 	if(diskTuple==NULL)
 	{
 		elog(LOG,"Transfer NULL diskTuple");
@@ -2671,7 +2647,7 @@ Datum gsingetbitmap(PG_FUNCTION_ARGS)
 	}
 while(scanstate.scanHasNext==true);
 	//LockBuffer(scanstate->currentLookupBuffer, BUFFER_LOCK_UNLOCK);
-//	elog(LOG,"Return bitmap %d pages",totalPages);
+	elog(LOG,"Return bitmap %d pages",totalPages);
 	//UnlockReleaseBuffer(scanstate.currentLookupBuffer);
 	PG_RETURN_INT64(totalPages * 10);
 }
@@ -2777,7 +2753,6 @@ gsinrescan(PG_FUNCTION_ARGS)
 
 	if (scankey && scan->numberOfKeys > 0){
 		memmove(scan->keyData, scankey,scan->numberOfKeys * sizeof(ScanKeyData));}
-
 
 
 
