@@ -137,7 +137,7 @@ For example, you can change "ignore: hippo_random" to "test: hippo_random". This
 #Hippo Video Demonstration
 Want to have a try? Do not hesitate! 
 
-Watch this video and learn how to get started: [Hippo Video Demonstration](http://www.public.asu.edu/~jiayu2/video/hippodemovideo.html) (You can watch it without a headset)
+Watch this video (No need for headsets) and learn how to get started: [Hippo Video Demonstration (on remote computer)](http://www.public.asu.edu/~jiayu2/video/hippodemovideo.html) or [Hippo Video Demonstration (on Youtube)](https://youtu.be/KKGucqX3ndQ).
 
 # Contact
 
