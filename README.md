@@ -134,6 +134,10 @@ For using Hippo in PostgreSQL Regression Test Mode, you need to
 ```
 For example, you can change "ignore: hippo_random" to "test: hippo_random". This will execute a random Hippo index test and the test may fail due to unpredicted results. The failure is normal.
 
+#Hippo Video Demonstration
+Want to have a try? Do not hesitate! 
+
+Watch this video and learn how to get started: [Hippo Video Demonstration](http://www.public.asu.edu/~jiayu2/video/hippodemovideo.html) (You can watch it without a headset)
 
 # Contact
 
