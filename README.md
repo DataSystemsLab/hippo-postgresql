@@ -1,5 +1,5 @@
 
-![GeoSpark Logo](http://faculty.engineering.asu.edu/sarwat/wp-content/uploads/2016/04/hippo-logo-2.png =100x20)
+<img src="http://faculty.engineering.asu.edu/sarwat/wp-content/uploads/2016/04/hippo-logo-2.png" width="200">
 Hippo is a fast, yet scalable, database indexing approach. In contrast to existing tree index structures, Hippo avoids storing a pointer to each tuple in the indexed table to reduce the storage space occupied by the index. Hippo only stores pointers to disk pages that represent the indexed database table and maintains summaries for the pointed pages. The summaries are brief histograms which
 represent the data distribution of one or more pages.
 
