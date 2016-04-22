@@ -1,5 +1,7 @@
 
 
+#Welcome to Hippo
+
 Hippo is a fast, yet scalable, sparse database indexing approach. In contrast to existing tree index structures, Hippo avoids storing a pointer to each tuple in the indexed table to reduce the storage space occupied by the index. Hippo only stores pointers to disk pages that represent the indexed database table and maintains summaries for the pointed pages. The summaries are brief histograms which
 represent the data distribution of one or more pages. The main contributions of Hippo are as follows:
 
