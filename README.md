@@ -1,5 +1,5 @@
 
-![GeoSpark Logo](untitled.png)
+![GeoSpark Logo](hippo-postgresql/Untitled.png)
 
 Hippo Index in PostgreSQL
 =====================================
