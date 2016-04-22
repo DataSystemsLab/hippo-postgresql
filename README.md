@@ -1,3 +1,6 @@
+
+![GeoSpark Logo](untitled.png)
+
 Hippo Index in PostgreSQL
 =====================================
 Hippo is a fast, yet scalable, database indexing approach. In contrast to existing tree index structures, Hippo avoids storing a pointer to each tuple in the indexed table to reduce the storage space occupied by the index. Hippo only stores pointers to disk pages that represent the indexed database table and maintains summaries for the pointed pages. The summaries are brief histograms which
