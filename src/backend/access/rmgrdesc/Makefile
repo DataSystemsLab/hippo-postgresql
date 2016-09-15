@@ -8,7 +8,7 @@ subdir = src/backend/access/rmgrdesc
 top_builddir = ../../../..
 include $(top_builddir)/src/Makefile.global
 
-OBJS = gsindesc.o brindesc.o clogdesc.o committsdesc.o dbasedesc.o gindesc.o gistdesc.o  \
+OBJS = hippodesc.o brindesc.o clogdesc.o committsdesc.o dbasedesc.o gindesc.o gistdesc.o  \
 	   hashdesc.o heapdesc.o mxactdesc.o nbtdesc.o relmapdesc.o \
 	   replorigindesc.o seqdesc.o smgrdesc.o spgdesc.o \
 	   standbydesc.o tblspcdesc.o xactdesc.o xlogdesc.o

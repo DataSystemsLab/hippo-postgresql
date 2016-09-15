@@ -249,7 +249,7 @@ static relopt_int intRelOpts[] =
 		{
 			"density",
 			"Density per partial histogram in Hippo index",
-			RELOPT_KIND_GSIN,
+			RELOPT_KIND_HIPPO,
 			AccessExclusiveLock
 		}, 20, 1, 100
 	},

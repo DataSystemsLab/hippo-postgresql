@@ -23,7 +23,7 @@
 #define PG_AM_H
 
 #include "catalog/genbki.h"
-#include "access/gsin.h"
+#include "access/hippo.h"
 /* ----------------
  *		pg_am definition.  cpp turns this into
  *		typedef struct FormData_pg_am
@@ -136,9 +136,9 @@ DATA(insert OID = 3580 (  brin	   0 15 f f f f t t f t t f f 0 brininsert brinbe
 DESCR("block range index (BRIN) access method");
 #define BRIN_AM_OID 3580
 
-DATA(insert OID = 891027 (  hippo	0 9 f f f f f f f f f f f 0 gsininsert gsinbeginscan - gsingetbitmap gsinrescan gsinendscan - - gsinbuild gsinbuildempty gsinbulkdelete gsinvacuumcleanup - gsincostestimate gsinoptions ));
+DATA(insert OID = 891027 (  hippo	0 9 f f f f f f f f f f f 0 hippoinsert hippobeginscan - hippogetbitmap hipporescan hippoendscan - - hippobuild hippobuildempty hippobulkdelete hippovacuumcleanup - hippocostestimate hippooptions ));
 DESCR("Hippo index access method");
-#define GSIN_AM_OID 891027
+#define HIPPO_AM_OID 891027
 
 
 #define BTREE0_AM_OID 891028

@@ -1118,7 +1118,7 @@ DATA(insert (	4104	603  600  7 s	   433	  3580 0 ));
 
 
 
-/* GSIN opclasses */
+/* HIPPO opclasses */
 
 /* minmax integer */
 DATA(insert (	920411	 20   20 1 s	   412	  891027 0 ));

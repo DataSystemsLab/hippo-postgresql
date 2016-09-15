@@ -7583,7 +7583,7 @@ brincostestimate(PG_FUNCTION_ARGS)
  * GSIN cost estimation. Currently this estimation is forcing Postgres to use GSIN with fake value.
  */
 Datum
-gsincostestimate(PG_FUNCTION_ARGS)
+hippocostestimate(PG_FUNCTION_ARGS)
 {
 	PlannerInfo *root = (PlannerInfo *) PG_GETARG_POINTER(0);
 	IndexPath  *path = (IndexPath *) PG_GETARG_POINTER(1);

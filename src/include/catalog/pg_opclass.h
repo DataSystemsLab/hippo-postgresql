@@ -273,8 +273,8 @@ DATA(insert (	3580	box_inclusion_ops		PGNSP PGUID 4104   603 t 603 ));
 /* no brin opclass for the geometric types except box */
 
 
-/* GSIN operator classes */
-/* no gsin opclass for bool */
+/* HIPPO operator classes */
+/* no HIPPO opclass for bool */
 /*DATA(insert (	3581	bytea_minmax_ops		PGNSP PGUID 4064	17 t 17 ));
 DATA(insert (	3581	char_minmax_ops			PGNSP PGUID 4062	18 t 18 ));
 DATA(insert (	3581	name_minmax_ops			PGNSP PGUID 4065	19 t 19 ));*/

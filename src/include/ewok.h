@@ -19,9 +19,13 @@
  */
 #ifndef __EWOK_BITMAP_C__
 #define __EWOK_BITMAP_C__
-
+/*
 #include <stdbool.h>
 #include <stdint.h>
+*/
+#include <stdio.h>
+#include <stdlib.h>
+
 #include "postgres.h"
 #ifndef ewah_malloc
 #	define ewah_malloc palloc
