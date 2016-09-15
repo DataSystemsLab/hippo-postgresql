@@ -4,8 +4,7 @@
 
 [![Build Status](https://travis-ci.org/jiayuasu/hippo-postgresql.svg?branch=master)](https://travis-ci.org/jiayuasu/hippo-postgresql)
 
-Hippo is a fast, yet scalable, sparse database indexing approach. In contrast to existing tree index structures, Hippo avoids storing a pointer to each tuple in the indexed table to reduce the storage space occupied by the index. Hippo only stores pointers to disk pages that represent the indexed database table and maintains summaries for the pointed pages. The summaries are brief histograms which
-represent the data distribution of one or more pages. The main contributions of Hippo are as follows:
+Hippo is a fast, yet scalable, sparse database indexing approach. In contrast to existing tree index structures, Hippo avoids storing a pointer to each tuple in the indexed table to reduce the storage space occupied by the index. Hippo only stores disk page ranges that represent the indexed database table and maintains histogram-based summaries for the page ranges. The summaries are brief histograms which represent the data distribution of one or more pages. The main contributions of Hippo are as follows:
 
 <img src="http://faculty.engineering.asu.edu/sarwat/wp-content/uploads/2016/04/hippo-logo-2.png" width="250" align="right" >
 
@@ -19,7 +18,7 @@ represent the data distribution of one or more pages. The main contributions of 
 
 #Play around with Hippo index
 
-For the ease of testing, we have implemented Hippo index into PostgreSQL kernel (9.5 Alpha 2) as one of the backend access methods. This verision is designed to be run on a Linux operating system.
+For the ease of testing, we have implemented Hippo index into PostgreSQL kernel (9.5 Alpha 2) as one of the backend access methods. This verision has been tested on Ubuntu Linux LTS 14.04.
 
 ## Download the source code
 ```
@@ -42,6 +41,15 @@ $ /usr/local/pgsql/bin/postgres -D /usr/local/pgsql/data >logfile 2>&1 &
 $ /usr/local/pgsql/bin/createdb test
 $ /usr/local/pgsql/bin/psql test
 ```
+
+You may need to install some required packages to pass the installation if use Ubuntu 14.04. Please try the following command:
+
+```
+$ sudo apt-get install build-essential libreadline-dev zlib1g-dev flex bison libxml2-dev libxslt-dev libssl-dev
+
+```
+
+
 
 ## PostgreSQL Regression Test
 
@@ -139,6 +147,7 @@ For example, you can change "ignore: hippo_random" to "test: hippo_random". This
 Want to have a try? Do not hesitate! 
 
 Watch this video (No need for headsets) and learn how to get started: [Hippo Video Demonstration (on remote computer)](http://www.public.asu.edu/~jiayu2/video/hippodemovideo.html) or [Hippo Video Demonstration (on Youtube)](https://youtu.be/KKGucqX3ndQ).
+
 
 # Contact
 
