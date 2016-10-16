@@ -148,6 +148,11 @@ Want to have a try? Do not hesitate!
 
 Watch this video (No need for headsets) and learn how to get started: [Hippo Video Demonstration (on remote computer)](http://www.public.asu.edu/~jiayu2/video/hippodemovideo.html) or [Hippo Video Demonstration (on Youtube)](https://youtu.be/KKGucqX3ndQ).
 
+# Publication
+
+Jia Yu, Mohamed Sarwat. ["Hippo: A Fast, yet Scalable Database Indexing Approach (Full research paper)"](). (Full research paper) 
+
+(To appear) In Proceeding of the 43rd International Conference on Very Large Data Bases VLDB 2017, Munich, Germany, August 2017
 
 # Contact
 
