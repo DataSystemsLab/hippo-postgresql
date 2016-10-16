@@ -150,7 +150,9 @@ Watch this video (No need for headsets) and learn how to get started: [Hippo Vid
 
 # Publication
 
-Jia Yu, Mohamed Sarwat. ["Hippo: A Fast, yet Scalable Database Indexing Approach (Full research paper)"](). (Full research paper) (To appear) In Proceeding of the 43rd International Conference on Very Large Data Bases VLDB 2017, Munich, Germany, August 2017
+Jia Yu, Mohamed Sarwat. ["Hippo: A Fast, yet Scalable Database Indexing Approach (Full research paper)"](). (Full research paper) 
+
+(To appear) In Proceeding of the 43rd International Conference on Very Large Data Bases VLDB 2017, Munich, Germany, August 2017
 
 # Contact
 
