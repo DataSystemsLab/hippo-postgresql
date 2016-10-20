@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <meta charset="UTF-8">
+    <title>Hippo by DataSystemsLab</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" type="text/css" href="stylesheets/normalize.css" media="screen">
+    <link href='https://fonts.googleapis.com/css?family=Open+Sans:400,700' rel='stylesheet' type='text/css'>
+    <link rel="stylesheet" type="text/css" href="stylesheets/stylesheet.css" media="screen">
+    <link rel="stylesheet" type="text/css" href="stylesheets/github-light.css" media="screen">
+  </head>
+  <body>
+    <section class="page-header">
+      <h1 class="project-name">Hippo</h1>
+      <h2 class="project-tagline">A Fast, yet Scalable, Database Indexing Approach</h2>
+      <a href="https://github.com/DataSystemsLab/hippo-postgresql" class="btn">View on GitHub</a>
+      <a href="https://github.com/DataSystemsLab/hippo-postgresql/zipball/master" class="btn">Download .zip</a>
+      <a href="https://github.com/DataSystemsLab/hippo-postgresql/tarball/master" class="btn">Download .tar.gz</a>
+    </section>
+
+    <section class="main-content">
+      <h1>
+<a id="hippo" class="anchor" href="#hippo" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Hippo</h1>
+
+<p>Hippo is a fast, yet scalable, sparse database indexing approach. In contrast to existing tree index structures, Hippo avoids storing a pointer to each tuple in the indexed table to reduce the storage space occupied by the index. Hippo only stores disk page ranges that represent the indexed database table and maintains histogram-based summaries for the page ranges. The summaries are brief histograms which represent the data distribution of one or more pages. The main contributions of Hippo are as follows:</p>
+
+<p><img src="https://camo.githubusercontent.com/af4b860690dfdffeb2d3483d09b9c44c2cc43565/687474703a2f2f666163756c74792e656e67696e656572696e672e6173752e6564752f7361727761742f77702d636f6e74656e742f75706c6f6164732f323031362f30342f686970706f2d6c6f676f2d322e706e67" width="250" align="right"></p>
+
+<ul>
+<li><p><strong>Low Indexing Overhead</strong></p></li>
+<li><p><strong>Competitive Query Performance</strong></p></li>
+<li><p><strong>Fast Index Maintenance</strong></p></li>
+</ul>
+
+<h1>
+<a id="play-around-with-hippo-index" class="anchor" href="#play-around-with-hippo-index" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Play around with Hippo index</h1>
+
+<p>For the ease of testing, we have implemented Hippo index into PostgreSQL kernel (9.5 Alpha 2) as one of the backend access methods. This verision has been tested on Ubuntu Linux LTS 14.04.</p>
+
+<h2>
+<a id="download-the-source-code" class="anchor" href="#download-the-source-code" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Download the source code</h2>
+
+<pre><code>$ git clone https://github.com/Sarwat/hippo-postgresql.git
+</code></pre>
+
+<h2>
+<a id="build-and-installation" class="anchor" href="#build-and-installation" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Build and Installation</h2>
+
+<p>Once you've synced with GitHub, the folder should contain the source code for PostgreSQL. The build and installation steps are exactly same with official PostgreSQL.</p>
+
+<pre><code>$ cd SourceFolder
+$ ./configure
+$ make
+$ su
+$ make install
+$ adduser postgres
+$ mkdir /usr/local/pgsql/data
+$ chown postgres /usr/local/pgsql/data
+$ su - postgres
+$ /usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data
+$ /usr/local/pgsql/bin/postgres -D /usr/local/pgsql/data &gt;logfile 2&gt;&amp;1 &amp;
+$ /usr/local/pgsql/bin/createdb test
+$ /usr/local/pgsql/bin/psql test
+</code></pre>
+
+<p>You may need to install some required packages to pass the installation if use Ubuntu 14.04. Please try the following command:</p>
+
+<pre><code>$ sudo apt-get install build-essential libreadline-dev zlib1g-dev flex bison libxml2-dev libxslt-dev libssl-dev
+
+</code></pre>
+
+<h2>
+<a id="postgresql-regression-test" class="anchor" href="#postgresql-regression-test" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>PostgreSQL Regression Test</h2>
+
+<p>After the installation, you have to make sure the source code on your machine pass all the PostgreSQL Regression Tests (157 in total).</p>
+
+<pre><code>$ cd SourceFolder
+
+$ make check
+</code></pre>
+
+<h2>
+<a id="usage-in-sql" class="anchor" href="#usage-in-sql" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Usage in SQL</h2>
+
+<p>Here list some SQL commands of Hippo index. For more details, please see the following Hippo index test SQL script:</p>
+
+<pre><code>./src/test/regress/sql/hippo.sql (Default)
+
+./src/test/regress/sql/hippo_random.sql
+</code></pre>
+
+<h3>
+<a id="build-hippo" class="anchor" href="#build-hippo" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Build Hippo</h3>
+
+<pre><code>ALTER TABLE hippo_tbl ALTER COLUMN randomNumber SET STATISTICS 500;
+
+ANALYZE hippo_tbl;
+
+CREATE INDEX hippo_idx ON hippo_tbl USING hippo(randomNumber) WITH (density = 20);
+
+</code></pre>
+
+<h3>
+<a id="query-hippo" class="anchor" href="#query-hippo" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Query Hippo</h3>
+
+<pre><code>SELECT * FROM hippo_tbl WHERE randomNumber &gt; 1000 AND randomNumber &lt; 2000;
+</code></pre>
+
+<h3>
+<a id="insert-new-records-into-hippo" class="anchor" href="#insert-new-records-into-hippo" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Insert new records into Hippo</h3>
+
+<pre><code>INSERT INTO hippo_tbl ... ... ...;
+</code></pre>
+
+<h3>
+<a id="delete-old-records-from-hippo" class="anchor" href="#delete-old-records-from-hippo" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Delete old records from Hippo</h3>
+
+<pre><code>DELETE FROM hippo_tbl WHERE randomNumber &gt; 1000 AND randomNumber &lt; 2000;
+
+VACUUM;
+</code></pre>
+
+<h3>
+<a id="drop-hippo" class="anchor" href="#drop-hippo" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Drop Hippo</h3>
+
+<pre><code>DROP INDEX hippo_idx;
+</code></pre>
+
+<h3>
+<a id="currently-supported-data-type" class="anchor" href="#currently-supported-data-type" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Currently supported data type</h3>
+
+<p>Integer</p>
+
+<h3>
+<a id="currently-supported-operator" class="anchor" href="#currently-supported-operator" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Currently supported operator</h3>
+
+<pre><code>&lt;, &lt;=, =, &gt;=, &gt;
+</code></pre>
+
+<h2>
+<a id="notes" class="anchor" href="#notes" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Notes</h2>
+
+<p>Currently, due to the conflicts between Hippo index and PostgreSQL kernel, Hippo only works on the temporary postmaster server which is built in PostgreSQL Regression Test Mode. We are still striving to release it in PostgreSQL Production Mode.</p>
+
+<p>For using Hippo in PostgreSQL Regression Test Mode, you need to</p>
+
+<ul>
+<li>Read and change Hippo index test SQL script:</li>
+</ul>
+
+<pre><code>./src/test/regress/sql/hippo.sql (Default)
+
+./src/test/regress/sql/hippo_random.sql
+</code></pre>
+
+<ul>
+<li>View Hippo index test SQL script output:</li>
+</ul>
+
+<pre><code>./src/test/regress/results/hippo.out (Default)
+
+./src/test/regress/results/hippo_random.out
+</code></pre>
+
+<ul>
+<li>Modify Regression Test schedule if necessary</li>
+</ul>
+
+<pre><code>./src/test/regress/parallel_schedule
+</code></pre>
+
+<p>For example, you can change "ignore: hippo_random" to "test: hippo_random". This will execute a random Hippo index test and the test may fail due to unpredicted results. The failure is normal.</p>
+
+<h1>
+<a id="hippo-video-demonstration" class="anchor" href="#hippo-video-demonstration" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Hippo Video Demonstration</h1>
+
+<p>Want to have a try? Do not hesitate! </p>
+
+<p>Watch this video (No need for headsets) and learn how to get started: <a href="http://www.public.asu.edu/%7Ejiayu2/video/hippodemovideo.html">Hippo Video Demonstration (on remote computer)</a> or <a href="https://youtu.be/KKGucqX3ndQ">Hippo Video Demonstration (on Youtube)</a>.</p>
+
+<h1>
+<a id="publication" class="anchor" href="#publication" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Publication</h1>
+
+<p>Jia Yu, Mohamed Sarwat. <a href="">"Hippo: A Fast, yet Scalable Database Indexing Approach"</a>. (Full research paper) </p>
+
+<p>(To appear) In Proceeding of the 43rd International Conference on Very Large Data Bases VLDB 2017, Munich, Germany, August 2017</p>
+
+<h1>
+<a id="contact" class="anchor" href="#contact" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Contact</h1>
+
+<h2>
+<a id="contributors" class="anchor" href="#contributors" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Contributors</h2>
+
+<ul>
+<li><p><a href="http://www.public.asu.edu/%7Ejiayu2/">Jia Yu</a> (Email: <a href="mailto:jiayu2@asu.edu">jiayu2@asu.edu</a>)</p></li>
+<li><p><a href="http://faculty.engineering.asu.edu/sarwat/">Mohamed Sarwat</a> (Email: <a href="mailto:msarwat@asu.edu">msarwat@asu.edu</a>)</p></li>
+</ul>
+
+<h2>
+<a id="datasys-lab" class="anchor" href="#datasys-lab" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>DataSys Lab</h2>
+
+<p>Hippo index is one of the projects under <a href="http://www.datasyslab.org/">DataSys Lab</a> at Arizona State University. The mission of DataSys Lab is designing and developing experimental data management systems (e.g., database systems).</p>
+
+<hr>
+
+<h1>
+<a id="postgresql-database-management-system" class="anchor" href="#postgresql-database-management-system" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>PostgreSQL Database Management System</h1>
+
+<p>This directory contains the source code distribution of the PostgreSQL
+database management system.</p>
+
+<p>PostgreSQL is an advanced object-relational database management system
+that supports an extended subset of the SQL standard, including
+transactions, foreign keys, subqueries, triggers, user-defined types
+and functions.  This distribution also contains C language bindings.</p>
+
+<p>PostgreSQL has many language interfaces, many of which are listed here:</p>
+
+<pre><code>http://www.postgresql.org/download
+</code></pre>
+
+<p>See the file INSTALL for instructions on how to build and install
+PostgreSQL.  That file also lists supported operating systems and
+hardware platforms and contains information regarding any other
+software packages that are required to build or run the PostgreSQL
+system.  Copyright and license information can be found in the
+file COPYRIGHT.  A comprehensive documentation set is included in this
+distribution; it can be read as described in the installation
+instructions.</p>
+
+<p>The latest version of this software may be obtained at
+<a href="http://www.postgresql.org/download/">http://www.postgresql.org/download/</a>.  For more information look at our
+web site located at <a href="http://www.postgresql.org/">http://www.postgresql.org/</a>.</p>
+
+      <footer class="site-footer">
+        <span class="site-footer-owner"><a href="https://github.com/DataSystemsLab/hippo-postgresql">Hippo</a> is maintained by <a href="https://github.com/DataSystemsLab">DataSystemsLab</a>.</span>
+
+        <span class="site-footer-credits">This page was generated by <a href="https://pages.github.com">GitHub Pages</a> using the <a href="https://github.com/jasonlong/cayman-theme">Cayman theme</a> by <a href="https://twitter.com/jasonlong">Jason Long</a>.</span>
+      </footer>
+
+    </section>
+
+  
+  </body>
+</html>
