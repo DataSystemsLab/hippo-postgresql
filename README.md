@@ -150,7 +150,7 @@ Watch this video (No need for headsets) and learn how to get started: [Hippo Vid
 
 # Publication
 
-Jia Yu, Mohamed Sarwat. ["Hippo: A Fast, yet Scalable Database Indexing Approach"](). (Full research paper) 
+Jia Yu, Mohamed Sarwat. ["Two Birds, One Stone: A Fast, yet Lightweight, Indexing Scheme for Modern Database Systems"](http://www.public.asu.edu/~jiayu2/hippo/publication/p428-yu.pdf). (Research paper) 
 
 (To appear) In Proceeding of the 43rd International Conference on Very Large Data Bases VLDB 2017, Munich, Germany, August 2017
 
