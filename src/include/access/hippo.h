@@ -213,12 +213,12 @@ OffsetNumber hippo_doinsert(HippoBuildState *buildstate);
  * Index entry operations
  */
 void hippoGetNextIndexTuple(IndexScanDesc scan);
-IndexTupleData * hippo_form_indextuple(HippoTupleLong *memTuple, Size *memlen, int histogramBoundsNum);
+IndexTupleData * hippo_form_indextuple(HippoTupleLong *memTuple, Size *memlen);
 void hippo_form_memtuple(HippoTupleLong *hippoTupleLong,IndexTuple diskTuple,Size *memlen);
 bool hippo_can_do_samepage_update(Buffer buffer, Size origsz, Size newsz);
 HippoTupleLong* build_real_hippo_tuplelong(HippoBuildState* buildstate);
 void copy_hippo_mem_tuple(HippoTupleLong *newTuple,HippoTupleLong* oldTuple);
-
+int calculate_disk_indextuple_size(HippoTupleLong *memTuple);
 
 /*
  * Complete histogram operations

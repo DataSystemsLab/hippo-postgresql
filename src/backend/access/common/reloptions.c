@@ -253,6 +253,14 @@ static relopt_int intRelOpts[] =
 	},
 	{
 		{
+			"density",
+			"Partial hisotgram density in a Hippo index",
+			RELOPT_KIND_HIPPO,
+			AccessExclusiveLock
+		}, 20, 1, 100
+	},
+	{
+		{
 			"gin_pending_list_limit",
 			"Maximum size of the pending list for this GIN index, in kilobytes.",
 			RELOPT_KIND_GIN,

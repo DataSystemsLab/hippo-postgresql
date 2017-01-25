@@ -159,12 +159,17 @@ select amname, prop, pg_indexam_has_property(a.oid, prop) as p
  hash   | can_multi_col | f
  hash   | can_exclude   | t
  hash   | bogus         | 
+ hippo  | can_order     | f
+ hippo  | can_unique    | f
+ hippo  | can_multi_col | f
+ hippo  | can_exclude   | f
+ hippo  | bogus         | 
  spgist | can_order     | f
  spgist | can_unique    | f
  spgist | can_multi_col | f
  spgist | can_exclude   | t
  spgist | bogus         | 
-(30 rows)
+(35 rows)
 
 --
 -- additional checks for pg_index_column_has_property

@@ -1648,10 +1648,7 @@ WHERE p1.oid != p2.oid AND
 -- Ask access methods to validate opclasses
 -- (this replaces a lot of SQL-level checks that used to be done in this file)
 SELECT oid, opcname FROM pg_opclass WHERE NOT amvalidate(oid);
- oid | opcname 
------+---------
-(0 rows)
-
+ERROR:  function amvalidate is not defined for index access method 9000
 -- **************** pg_am ****************
 -- Look for illegal values in pg_am fields
 SELECT p1.oid, p1.amname
@@ -1819,7 +1816,12 @@ ORDER BY 1, 2, 3;
        4000 |           15 | >
        4000 |           16 | @>
        4000 |           18 | =
-(112 rows)
+       9000 |            1 | <
+       9000 |            2 | <=
+       9000 |            3 | =
+       9000 |            4 | >=
+       9000 |            5 | >
+(117 rows)
 
 -- Check that all opclass search operators have selectivity estimators.
 -- This is not absolutely required, but it seems a reasonable thing

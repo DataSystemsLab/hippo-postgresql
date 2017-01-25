@@ -7594,6 +7594,7 @@ hippocostestimate(PlannerInfo *root, IndexPath *path, double loop_count,
 		 Cost *indexStartupCost, Cost *indexTotalCost,
 		 Selectivity *indexSelectivity, double *indexCorrelation)
 {
+	ereport(DEBUG1,(errmsg("[hippocostestimate] start")));
 	IndexOptInfo *index = path->indexinfo;
 	List	   *indexQuals = path->indexquals;
 	List	   *indexOrderBys = path->indexorderbys;
@@ -7604,35 +7605,36 @@ hippocostestimate(PlannerInfo *root, IndexPath *path, double loop_count,
 	Cost		spc_random_page_cost;
 	double		qual_op_cost;
 	double		qual_arg_cost;
+
+	/* Do preliminary analysis of indexquals */
+	qinfos = deconstruct_indexquals(path);
+
+	/* fetch estimated page cost for tablespace containing index */
+	//get_tablespace_page_costs(index->reltablespace,
+		//					  &spc_random_page_cost,
+			//				  &spc_seq_page_cost);
+
+
 	*indexStartupCost = 0;//spc_seq_page_cost * numPages * loop_count;
 
-	/*
-	 * To read a BRIN index there might be a bit of back and forth over
-	 * regular pages, as revmap might point to them out of sequential order;
-	 * calculate this as reading the whole index in random order.
-	 */
 	*indexTotalCost = 0;//spc_random_page_cost * numPages * loop_count;
 
-	*indexSelectivity = 0;//
-		/*clauselist_selectivity(root, indexQuals,
+	*indexSelectivity =
+		clauselist_selectivity(root, indexQuals,
 							   path->indexinfo->rel->relid,
-							   JOIN_INNER, NULL);*/
+							   JOIN_INNER, NULL);
 	*indexCorrelation = 1;
 
 	/*
 	 * Add on index qual eval costs, much as in genericcostestimate.
 	 */
-	qual_arg_cost = other_operands_eval_cost(root, qinfos) +
-		orderby_operands_eval_cost(root, path);
-	qual_op_cost = cpu_operator_cost *
-		(list_length(indexQuals) + list_length(indexOrderBys));
+	qual_arg_cost = 0;//other_operands_eval_cost(root, qinfos) +
+		//orderby_operands_eval_cost(root, path);
+	qual_op_cost = 0;//cpu_operator_cost *
+		//(list_length(indexQuals) + list_length(indexOrderBys));
 
-	*indexStartupCost =0;//+= qual_arg_cost;
-	*indexTotalCost =0;//+= qual_arg_cost;
-	*indexTotalCost =0;//+= (numTuples * *indexSelectivity) * (cpu_index_tuple_cost + qual_op_cost);
-
-	/* XXX what about pages_per_range? */
-
-	PG_RETURN_VOID();
-
+	*indexStartupCost += 0;//qual_arg_cost;
+	*indexTotalCost += 0;//qual_arg_cost;
+	*indexTotalCost += 0;//(numTuples * *indexSelectivity) * (cpu_index_tuple_cost + qual_op_cost);
+	ereport(DEBUG1,(errmsg("[hippocostestimate] stop")));
 }
