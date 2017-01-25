@@ -5336,28 +5336,28 @@ DESCR("get progress for all replication origins");
 
 
 
-DATA(insert OID = 891110 (  gsininsert		   PGNSP PGUID 12 1 0 0 0 f f f f t f v 6 0 16 "2281 2281 2281 2281 2281 2281" _null_ _null_ _null_ _null_ _null_	gsininsert _null_ _null_ _null_ ));
-DESCR("gsin(internal)");
-DATA(insert OID = 891111 ( gsingetbitmap    PGNSP PGUID 12 1 0 0 0 f f f f f f v 2 0 20 "2281 2281" _null_ _null_ _null_ _null_ _null_	gsingetbitmap _null_ _null_ _null_ ));
-DESCR("gsin(internal)");
-DATA(insert OID = 891112 (  gsinbeginscan    PGNSP PGUID 12 1 0 0 0 f f f f f f v 3 0 2281 "2281 2281 2281" _null_ _null_ _null_ _null_ _null_	gsinbeginscan _null_ _null_ _null_ ));
-DESCR("gsin(internal)");
-DATA(insert OID = 891113 (  gsinendscan		   PGNSP PGUID 12 1 0 0 0 f f f f f f v 1 0 2278 "2281" _null_ _null_ _null_ _null_ _null_ gsinendscan _null_ _null_ _null_ ));
-DESCR("gsin(internal)");
-DATA(insert OID = 891114 (  gsinbuild		   PGNSP PGUID 12 1 0 0 0 f f f f f f v 3 0 2281 "2281 2281 2281" _null_ _null_ _null_ _null_ _null_ gsinbuild _null_ _null_ _null_ ));
-DESCR("gsin(internal)");
-DATA(insert OID = 891115 (  gsinbuildempty	   PGNSP PGUID 12 1 0 0 0 f f f f f f v 1 0 2278 "2281" _null_ _null_ _null_ _null_ _null_ gsinbuildempty _null_ _null_ _null_ ));
-DESCR("gsin(internal)");
-DATA(insert OID = 891116 (  gsincostestimate	 PGNSP PGUID 12 1 0 0 0 f f f f t f v 7 0 2278 "2281 2281 2281 2281 2281 2281 2281" _null_ _null_ _null_ _null_ _null_ gsincostestimate _null_ _null_ _null_ ));
-DESCR("gsin(internal)");
-DATA(insert OID = 891117 (  gsinrescan		   PGNSP PGUID 12 1 0 0 0 f f f f t f v 5 0 2278 "2281 2281 2281 2281 2281" _null_ _null_ _null_ _null_ _null_ gsinrescan _null_ _null_ _null_ ));
-DESCR("gsin(internal)");
-DATA(insert OID = 891118 (  gsinoptions		    PGNSP PGUID 12 1 0 0 0 f f f f t f s 2 0 17 "1009 16" _null_ _null_ _null_ _null_ _null_ gsinoptions _null_ _null_ _null_ ));
-DESCR("gsin(internal)");
-DATA(insert OID = 891119 (  gsinbulkdelete	   PGNSP PGUID 12 1 0 0 0 f f f f t f v 4 0 2281 "2281 2281 2281 2281" _null_ _null_ _null_ _null_ _null_ gsinbulkdelete _null_ _null_ _null_ ));
-DESCR("gsin(internal)");
-DATA(insert OID = 891120 (  gsinvacuumcleanup   PGNSP PGUID 12 1 0 0 0 f f f f t f v 2 0 2281 "2281 2281" _null_ _null_ _null_ _null_ _null_ gsinvacuumcleanup _null_ _null_ _null_ ));
-DESCR("gsin(internal)");
+DATA(insert OID = 891110 (  hippoinsert		   PGNSP PGUID 12 1 0 0 0 f f f f t f v 6 0 16 "2281 2281 2281 2281 2281 2281" _null_ _null_ _null_ _null_ _null_	hippoinsert _null_ _null_ _null_ ));
+DESCR("hippo(internal)");
+DATA(insert OID = 891111 ( hippogetbitmap    PGNSP PGUID 12 1 0 0 0 f f f f f f v 2 0 20 "2281 2281" _null_ _null_ _null_ _null_ _null_	hippogetbitmap _null_ _null_ _null_ ));
+DESCR("hippo(internal)");
+DATA(insert OID = 891112 (  hippobeginscan    PGNSP PGUID 12 1 0 0 0 f f f f f f v 3 0 2281 "2281 2281 2281" _null_ _null_ _null_ _null_ _null_	hippobeginscan _null_ _null_ _null_ ));
+DESCR("hippo(internal)");
+DATA(insert OID = 891113 (  hippoendscan		   PGNSP PGUID 12 1 0 0 0 f f f f f f v 1 0 2278 "2281" _null_ _null_ _null_ _null_ _null_ hippoendscan _null_ _null_ _null_ ));
+DESCR("hippo(internal)");
+DATA(insert OID = 891114 (  hippobuild		   PGNSP PGUID 12 1 0 0 0 f f f f f f v 3 0 2281 "2281 2281 2281" _null_ _null_ _null_ _null_ _null_ hippobuild _null_ _null_ _null_ ));
+DESCR("hippo(internal)");
+DATA(insert OID = 891115 (  hippobuildempty	   PGNSP PGUID 12 1 0 0 0 f f f f f f v 1 0 2278 "2281" _null_ _null_ _null_ _null_ _null_ hippobuildempty _null_ _null_ _null_ ));
+DESCR("hippo(internal)");
+DATA(insert OID = 891116 (  hippocostestimate	 PGNSP PGUID 12 1 0 0 0 f f f f t f v 7 0 2278 "2281 2281 2281 2281 2281 2281 2281" _null_ _null_ _null_ _null_ _null_ hippocostestimate _null_ _null_ _null_ ));
+DESCR("hippo(internal)");
+DATA(insert OID = 891117 (  hipporescan		   PGNSP PGUID 12 1 0 0 0 f f f f t f v 5 0 2278 "2281 2281 2281 2281 2281" _null_ _null_ _null_ _null_ _null_ hipporescan _null_ _null_ _null_ ));
+DESCR("hippo(internal)");
+DATA(insert OID = 891118 (  hippooptions		    PGNSP PGUID 12 1 0 0 0 f f f f t f s 2 0 17 "1009 16" _null_ _null_ _null_ _null_ _null_ hippooptions _null_ _null_ _null_ ));
+DESCR("hippo(internal)");
+DATA(insert OID = 891119 (  hippobulkdelete	   PGNSP PGUID 12 1 0 0 0 f f f f t f v 4 0 2281 "2281 2281 2281 2281" _null_ _null_ _null_ _null_ _null_ hippobulkdelete _null_ _null_ _null_ ));
+DESCR("hippo(internal)");
+DATA(insert OID = 891120 (  hippovacuumcleanup   PGNSP PGUID 12 1 0 0 0 f f f f t f v 2 0 2281 "2281 2281" _null_ _null_ _null_ _null_ _null_ hippovacuumcleanup _null_ _null_ _null_ ));
+DESCR("hippo(internal)");
 /*
  * Symbolic values for provolatile column: these indicate whether the result
  * of a function is dependent *only* on the values of its explicit arguments,

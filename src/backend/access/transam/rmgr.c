@@ -10,7 +10,7 @@
 #include "access/clog.h"
 #include "access/commit_ts.h"
 #include "access/gin.h"
-#include "access/gsin.h"
+#include "access/hippo.h"
 #include "access/gist_private.h"
 #include "access/hash.h"
 #include "access/heapam_xlog.h"
