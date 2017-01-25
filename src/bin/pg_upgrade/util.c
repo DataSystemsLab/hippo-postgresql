@@ -3,7 +3,7 @@
  *
  *	utility functions
  *
- *	Copyright (c) 2010-2015, PostgreSQL Global Development Group
+ *	Copyright (c) 2010-2016, PostgreSQL Global Development Group
  *	src/bin/pg_upgrade/util.c
  */
 
@@ -229,24 +229,6 @@ get_user_info(char **user_name_p)
 	*user_name_p = pg_strdup(user_name);
 
 	return user_id;
-}
-
-
-/*
- * getErrorText()
- *
- *	Returns the text of the error message for the given error number
- *
- *	This feature is factored into a separate function because it is
- *	system-dependent.
- */
-const char *
-getErrorText(int errNum)
-{
-#ifdef WIN32
-	_dosmaperr(GetLastError());
-#endif
-	return pg_strdup(strerror(errNum));
 }
 
 

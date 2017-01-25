@@ -5,7 +5,7 @@
  *
  * Author: Magnus Hagander <magnus@hagander.net>
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *		  src/bin/pg_basebackup/pg_receivexlog.c
@@ -67,7 +67,7 @@ usage(void)
 	printf(_("  %s [OPTION]...\n"), progname);
 	printf(_("\nOptions:\n"));
 	printf(_("  -D, --directory=DIR    receive transaction log files into this directory\n"));
-	printf(_("      --if-not-exists    do not treat naming conflicts as an error when creating a slot\n"));
+	printf(_("      --if-not-exists    do not error if slot already exists when creating a slot\n"));
 	printf(_("  -n, --no-loop          do not loop on connection lost\n"));
 	printf(_("  -s, --status-interval=SECS\n"
 			 "                         time between status packets sent to server (default: %d)\n"), (standby_message_timeout / 1000));
@@ -276,10 +276,11 @@ FindStreamingStart(uint32 *tli)
 static void
 StreamLog(void)
 {
-	XLogRecPtr	startpos,
-				serverpos;
-	TimeLineID	starttli,
-				servertli;
+	XLogRecPtr	serverpos;
+	TimeLineID	servertli;
+	StreamCtl	stream;
+
+	MemSet(&stream, 0, sizeof(stream));
 
 	/*
 	 * Connect in replication mode to the server
@@ -311,17 +312,17 @@ StreamLog(void)
 	/*
 	 * Figure out where to start streaming.
 	 */
-	startpos = FindStreamingStart(&starttli);
-	if (startpos == InvalidXLogRecPtr)
+	stream.startpos = FindStreamingStart(&stream.timeline);
+	if (stream.startpos == InvalidXLogRecPtr)
 	{
-		startpos = serverpos;
-		starttli = servertli;
+		stream.startpos = serverpos;
+		stream.timeline = servertli;
 	}
 
 	/*
 	 * Always start streaming at the beginning of a segment
 	 */
-	startpos -= startpos % XLOG_SEG_SIZE;
+	stream.startpos -= stream.startpos % XLOG_SEG_SIZE;
 
 	/*
 	 * Start the replication
@@ -329,12 +330,17 @@ StreamLog(void)
 	if (verbose)
 		fprintf(stderr,
 				_("%s: starting log streaming at %X/%X (timeline %u)\n"),
-				progname, (uint32) (startpos >> 32), (uint32) startpos,
-				starttli);
+		progname, (uint32) (stream.startpos >> 32), (uint32) stream.startpos,
+				stream.timeline);
 
-	ReceiveXlogStream(conn, startpos, starttli, NULL, basedir,
-					  stop_streaming, standby_message_timeout, ".partial",
-					  synchronous, false);
+	stream.stream_stop = stop_streaming;
+	stream.standby_message_timeout = standby_message_timeout;
+	stream.synchronous = synchronous;
+	stream.mark_done = false;
+	stream.basedir = basedir;
+	stream.partial_suffix = ".partial";
+
+	ReceiveXlogStream(conn, &stream);
 
 	PQfinish(conn);
 	conn = NULL;
@@ -383,7 +389,7 @@ main(int argc, char **argv)
 	char	   *db_name;
 
 	progname = get_progname(argv[0]);
-	set_pglocale_pgservice(argv[0], PG_TEXTDOMAIN("pg_receivexlog"));
+	set_pglocale_pgservice(argv[0], PG_TEXTDOMAIN("pg_basebackup"));
 
 	if (argc > 1)
 	{

@@ -4,7 +4,7 @@
  *
  *	  Routines for operator manipulation commands
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -40,6 +40,7 @@
 #include "catalog/indexing.h"
 #include "catalog/objectaccess.h"
 #include "catalog/pg_operator.h"
+#include "catalog/pg_operator_fn.h"
 #include "catalog/pg_type.h"
 #include "commands/alter.h"
 #include "commands/defrem.h"
@@ -274,8 +275,8 @@ ValidateRestrictionEstimator(List *restrictionName)
 	if (get_func_rettype(restrictionOid) != FLOAT8OID)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-				 errmsg("restriction estimator function %s must return type \"float8\"",
-						NameListToString(restrictionName))));
+			  errmsg("restriction estimator function %s must return type %s",
+					 NameListToString(restrictionName), "float8")));
 
 	/* Require EXECUTE rights for the estimator */
 	aclresult = pg_proc_aclcheck(restrictionOid, GetUserId(), ACL_EXECUTE);
@@ -320,8 +321,8 @@ ValidateJoinEstimator(List *joinName)
 	if (get_func_rettype(joinOid) != FLOAT8OID)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-			 errmsg("join estimator function %s must return type \"float8\"",
-					NameListToString(joinName))));
+				 errmsg("join estimator function %s must return type %s",
+						NameListToString(joinName), "float8")));
 
 	/* Require EXECUTE rights for the estimator */
 	aclresult = pg_proc_aclcheck(joinOid, GetUserId(), ACL_EXECUTE);
@@ -340,12 +341,32 @@ RemoveOperatorById(Oid operOid)
 {
 	Relation	relation;
 	HeapTuple	tup;
+	Form_pg_operator op;
 
 	relation = heap_open(OperatorRelationId, RowExclusiveLock);
 
 	tup = SearchSysCache1(OPEROID, ObjectIdGetDatum(operOid));
 	if (!HeapTupleIsValid(tup)) /* should not happen */
 		elog(ERROR, "cache lookup failed for operator %u", operOid);
+	op = (Form_pg_operator) GETSTRUCT(tup);
+
+	/*
+	 * Reset links from commutator and negator, if any.  In case of a
+	 * self-commutator or self-negator, this means we have to re-fetch the
+	 * updated tuple.  (We could optimize away updates on the tuple we're
+	 * about to drop, but it doesn't seem worth convoluting the logic for.)
+	 */
+	if (OidIsValid(op->oprcom) || OidIsValid(op->oprnegate))
+	{
+		OperatorUpd(operOid, op->oprcom, op->oprnegate, true);
+		if (operOid == op->oprcom || operOid == op->oprnegate)
+		{
+			ReleaseSysCache(tup);
+			tup = SearchSysCache1(OPEROID, ObjectIdGetDatum(operOid));
+			if (!HeapTupleIsValid(tup)) /* should not happen */
+				elog(ERROR, "cache lookup failed for operator %u", operOid);
+		}
+	}
 
 	simple_heap_delete(relation, &tup->t_self);
 
@@ -427,7 +448,7 @@ AlterOperator(AlterOperatorStmt *stmt)
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errmsg("operator attribute \"%s\" can not be changed",
+					 errmsg("operator attribute \"%s\" cannot be changed",
 							defel->defname)));
 		}
 		else
@@ -500,9 +521,9 @@ AlterOperator(AlterOperatorStmt *stmt)
 	simple_heap_update(catalog, &tup->t_self, tup);
 	CatalogUpdateIndexes(catalog, tup);
 
-	InvokeObjectPostAlterHook(OperatorRelationId, oprId, 0);
+	address = makeOperatorDependencies(tup, true);
 
-	ObjectAddressSet(address, OperatorRelationId, oprId);
+	InvokeObjectPostAlterHook(OperatorRelationId, oprId, 0);
 
 	heap_close(catalog, NoLock);
 

@@ -27,7 +27,7 @@
  * the backend's "backend/libpq" is quite separate from "interfaces/libpq".
  * All that remains is similarities of names to trap the unwary...
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *	src/backend/libpq/pqcomm.c
@@ -165,6 +165,7 @@ static PQcommMethods PqCommSocketMethods = {
 
 PQcommMethods *PqCommMethods = &PqCommSocketMethods;
 
+WaitEventSet *FeBeWaitSet;
 
 
 /* --------------------------------
@@ -201,6 +202,11 @@ pq_init(void)
 				(errmsg("could not set socket to nonblocking mode: %m")));
 #endif
 
+	FeBeWaitSet = CreateWaitEventSet(TopMemoryContext, 3);
+	AddWaitEventToSet(FeBeWaitSet, WL_SOCKET_WRITEABLE, MyProcPort->sock,
+					  NULL, NULL);
+	AddWaitEventToSet(FeBeWaitSet, WL_LATCH_SET, -1, MyLatch, NULL);
+	AddWaitEventToSet(FeBeWaitSet, WL_POSTMASTER_DEATH, -1, NULL, NULL);
 }
 
 /* --------------------------------
@@ -1168,7 +1174,7 @@ pq_startmsgread(void)
 	if (PqCommReadingMsg)
 		ereport(FATAL,
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
-		   errmsg("terminating connection because protocol sync was lost")));
+				 errmsg("terminating connection because protocol synchronization was lost")));
 
 	PqCommReadingMsg = true;
 }

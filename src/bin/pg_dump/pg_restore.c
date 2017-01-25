@@ -77,6 +77,7 @@ main(int argc, char **argv)
 	static int	outputNoTablespaces = 0;
 	static int	use_setsessauth = 0;
 	static int	no_security_labels = 0;
+	static int	strict_names = 0;
 
 	struct option cmdopts[] = {
 		{"clean", 0, NULL, 'c'},
@@ -118,6 +119,7 @@ main(int argc, char **argv)
 		{"no-tablespaces", no_argument, &outputNoTablespaces, 1},
 		{"role", required_argument, NULL, 2},
 		{"section", required_argument, NULL, 3},
+		{"strict-names", no_argument, &strict_names, 1},
 		{"use-set-session-authorization", no_argument, &use_setsessauth, 1},
 		{"no-security-labels", no_argument, &no_security_labels, 1},
 
@@ -345,6 +347,7 @@ main(int argc, char **argv)
 		exit_nicely(1);
 	}
 	opts->if_exists = if_exists;
+	opts->strict_names = strict_names;
 
 	if (opts->formatName)
 	{
@@ -374,6 +377,8 @@ main(int argc, char **argv)
 
 	AH = OpenArchive(inputFileSpec, opts->format);
 
+	SetArchiveOptions(AH, NULL, opts);
+
 	/*
 	 * We don't have a connection yet but that doesn't matter. The connection
 	 * is initialized to NULL and if we terminate through exit_nicely() while
@@ -390,7 +395,7 @@ main(int argc, char **argv)
 	AH->exit_on_error = opts->exit_on_error;
 
 	if (opts->tocFile)
-		SortTocFromFile(AH, opts);
+		SortTocFromFile(AH);
 
 	/* See comments in pg_dump.c */
 #ifdef WIN32
@@ -405,10 +410,10 @@ main(int argc, char **argv)
 	AH->numWorkers = numWorkers;
 
 	if (opts->tocSummary)
-		PrintTOCSummary(AH, opts);
+		PrintTOCSummary(AH);
 	else
 	{
-		SetArchiveRestoreOptions(AH, opts);
+		ProcessArchiveRestoreOptions(AH);
 		RestoreArchive(AH);
 	}
 
@@ -420,7 +425,7 @@ main(int argc, char **argv)
 	/* AH may be freed in CloseArchive? */
 	exit_code = AH->n_errors ? 1 : 0;
 
-	CloseArchive(AH, NULL);
+	CloseArchive(AH);
 
 	return exit_code;
 }
@@ -455,18 +460,20 @@ usage(const char *progname)
 	printf(_("  -P, --function=NAME(args)    restore named function\n"));
 	printf(_("  -s, --schema-only            restore only the schema, no data\n"));
 	printf(_("  -S, --superuser=NAME         superuser user name to use for disabling triggers\n"));
-	printf(_("  -t, --table=NAME             restore named relation (table, view, etc)\n"));
+	printf(_("  -t, --table=NAME             restore named relation (table, view, etc.)\n"));
 	printf(_("  -T, --trigger=NAME           restore named trigger\n"));
 	printf(_("  -x, --no-privileges          skip restoration of access privileges (grant/revoke)\n"));
 	printf(_("  -1, --single-transaction     restore as a single transaction\n"));
 	printf(_("  --disable-triggers           disable triggers during data-only restore\n"));
-	printf(_("  --enable-row-security        enable row level security\n"));
+	printf(_("  --enable-row-security        enable row security\n"));
 	printf(_("  --if-exists                  use IF EXISTS when dropping objects\n"));
 	printf(_("  --no-data-for-failed-tables  do not restore data of tables that could not be\n"
 			 "                               created\n"));
 	printf(_("  --no-security-labels         do not restore security labels\n"));
 	printf(_("  --no-tablespaces             do not restore tablespace assignments\n"));
 	printf(_("  --section=SECTION            restore named section (pre-data, data, or post-data)\n"));
+	printf(_("  --strict-names               require table and/or schema include patterns to\n"
+		 "                               match at least one entity each\n"));
 	printf(_("  --use-set-session-authorization\n"
 			 "                               use SET SESSION AUTHORIZATION commands instead of\n"
 			 "                               ALTER OWNER commands to set ownership\n"));

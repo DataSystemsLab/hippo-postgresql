@@ -8,7 +8,7 @@
  * do nothing if it's enabled. You should avoid accessing the target files
  * directly but if you do, make sure you honor the --dry-run mode!
  *
- * Portions Copyright (c) 2013-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 2013-2016, PostgreSQL Global Development Group
  *
  *-------------------------------------------------------------------------
  */
@@ -79,7 +79,6 @@ close_target_file(void)
 				 dstpath, strerror(errno));
 
 	dstfd = -1;
-	/* fsync? */
 }
 
 void
@@ -198,7 +197,7 @@ truncate_target_file(const char *path, off_t newsize)
 				 dstpath, strerror(errno));
 
 	if (ftruncate(fd, newsize) != 0)
-		pg_fatal("could not truncate file \"%s\" to %u bytes: %s\n",
+		pg_fatal("could not truncate file \"%s\" to %u: %s\n",
 				 dstpath, (unsigned int) newsize, strerror(errno));
 
 	close(fd);

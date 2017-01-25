@@ -45,7 +45,7 @@
  * and we'd like to still refer to them via C struct offsets.
  *
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -805,7 +805,7 @@ heap_modify_tuple(HeapTuple tuple,
 	 * repl information, as appropriate.
 	 *
 	 * NOTE: it's debatable whether to use heap_deform_tuple() here or just
-	 * heap_getattr() only the non-replaced colums.  The latter could win if
+	 * heap_getattr() only the non-replaced columns.  The latter could win if
 	 * there are many replaced columns and few non-replaced ones. However,
 	 * heap_deform_tuple costs only O(N) while the heap_getattr way would cost
 	 * O(N^2) if there are many non-replaced columns, so it seems better to

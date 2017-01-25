@@ -30,7 +30,7 @@
  * intentional denormalization of the catalogs to buy lookup speed.
  *
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/catalog/pg_amop.h
@@ -833,6 +833,22 @@ DATA(insert (	3474   3831 2283 16 s	3889 4000 0 ));
 DATA(insert (	3474   3831 3831 18 s	3882 4000 0 ));
 
 /*
+ * SP-GiST box_ops
+ */
+DATA(insert (	5000	603  603  1 s	 493	4000 0 ));
+DATA(insert (	5000	603  603  2 s	 494	4000 0 ));
+DATA(insert (	5000	603  603  3 s	 500	4000 0 ));
+DATA(insert (	5000	603  603  4 s	 495	4000 0 ));
+DATA(insert (	5000	603  603  5 s	 496	4000 0 ));
+DATA(insert (	5000	603  603  6 s	 499	4000 0 ));
+DATA(insert (	5000	603  603  7 s	 498	4000 0 ));
+DATA(insert (	5000	603  603  8 s	 497	4000 0 ));
+DATA(insert (	5000	603  603  9 s	2571	4000 0 ));
+DATA(insert (	5000	603  603 10 s	2570	4000 0 ));
+DATA(insert (	5000	603  603 11 s	2573	4000 0 ));
+DATA(insert (	5000	603  603 12 s	2572	4000 0 ));
+
+/*
  * GiST inet_ops
  */
 DATA(insert (	3550	869 869 3 s		3552 783 0 ));
@@ -1116,57 +1132,53 @@ DATA(insert (	4104	603  603 12 s	  2572	  3580 0 ));
 /* we could, but choose not to, supply entries for strategies 13 and 14 */
 DATA(insert (	4104	603  600  7 s	   433	  3580 0 ));
 
-
-
 /* HIPPO opclasses */
 
 /* minmax integer */
-DATA(insert (	920411	 20   20 1 s	   412	  891027 0 ));
-DATA(insert (	920411	 20   20 2 s	   414	  891027 0 ));
-DATA(insert (	920411	 20   20 3 s	   410	  891027 0 ));
-DATA(insert (	920411	 20   20 4 s	   415	  891027 0 ));
-DATA(insert (	920411	 20   20 5 s	   413	  891027 0 ));
-DATA(insert (	920411	 20   21 1 s	  1870	  891027 0 ));
-DATA(insert (	920411	 20   21 2 s	  1872	  891027 0 ));
-DATA(insert (	920411	 20   21 3 s	  1868	  891027 0 ));
-DATA(insert (	920411	 20   21 4 s	  1873	  891027 0 ));
-DATA(insert (	920411	 20   21 5 s	  1871	  891027 0 ));
-DATA(insert (	920411	 20   23 1 s	   418	  891027 0 ));
-DATA(insert (	920411	 20   23 2 s	   420	  891027 0 ));
-DATA(insert (	920411	 20   23 3 s	   416	  891027 0 ));
-DATA(insert (	920411	 20   23 4 s	   430	  891027 0 ));
-DATA(insert (	920411	 20   23 5 s	   419	  891027 0 ));
-DATA(insert (	920411	 21   21 1 s		95	  891027 0 ));
-DATA(insert (	920411	 21   21 2 s	   522	  891027 0 ));
-DATA(insert (	920411	 21   21 3 s		94	  891027 0 ));
-DATA(insert (	920411	 21   21 4 s	   524	  891027 0 ));
-DATA(insert (	920411	 21   21 5 s	   520	  891027 0 ));
-DATA(insert (	920411	 21   20 1 s	  1864	  891027 0 ));
-DATA(insert (	920411	 21   20 2 s	  1866	  891027 0 ));
-DATA(insert (	920411	 21   20 3 s	  1862	  891027 0 ));
-DATA(insert (	920411	 21   20 4 s	  1867	  891027 0 ));
-DATA(insert (	920411	 21   20 5 s	  1865	  891027 0 ));
-DATA(insert (	920411	 21   23 1 s	   534	  891027 0 ));
-DATA(insert (	920411	 21   23 2 s	   540	  891027 0 ));
-DATA(insert (	920411	 21   23 3 s	   532	  891027 0 ));
-DATA(insert (	920411	 21   23 4 s	   542	  891027 0 ));
-DATA(insert (	920411	 21   23 5 s	   536	  891027 0 ));
-DATA(insert (	920411	 23   23 1 s		97	  891027 0 ));
-DATA(insert (	920411	 23   23 2 s	   523	  891027 0 ));
-DATA(insert (	920411	 23   23 3 s		96	  891027 0 ));
-DATA(insert (	920411	 23   23 4 s	   525	  891027 0 ));
-DATA(insert (	920411	 23   23 5 s	   521	  891027 0 ));
-DATA(insert (	920411	 23   21 1 s	   535	  891027 0 ));
-DATA(insert (	920411	 23   21 2 s	   541	  891027 0 ));
-DATA(insert (	920411	 23   21 3 s	   533	  891027 0 ));
-DATA(insert (	920411	 23   21 4 s	   543	  891027 0 ));
-DATA(insert (	920411	 23   21 5 s	   537	  891027 0 ));
-DATA(insert (	920411	 23   20 1 s		37	  891027 0 ));
-DATA(insert (	920411	 23   20 2 s		80	  891027 0 ));
-DATA(insert (	920411	 23   20 3 s		15	  891027 0 ));
-DATA(insert (	920411	 23   20 4 s		82	  891027 0 ));
-DATA(insert (	920411	 23   20 5 s		76	  891027 0 ));
-
-
+DATA(insert (	9001	 20   20 1 s	   412	  9000 0 ));
+DATA(insert (	9001	 20   20 2 s	   414	  9000 0 ));
+DATA(insert (	9001	 20   20 3 s	   410	  9000 0 ));
+DATA(insert (	9001	 20   20 4 s	   415	  9000 0 ));
+DATA(insert (	9001	 20   20 5 s	   413	  9000 0 ));
+DATA(insert (	9001	 20   21 1 s	  1870	  9000 0 ));
+DATA(insert (	9001	 20   21 2 s	  1872	  9000 0 ));
+DATA(insert (	9001	 20   21 3 s	  1868	  9000 0 ));
+DATA(insert (	9001	 20   21 4 s	  1873	  9000 0 ));
+DATA(insert (	9001	 20   21 5 s	  1871	  9000 0 ));
+DATA(insert (	9001	 20   23 1 s	   418	  9000 0 ));
+DATA(insert (	9001	 20   23 2 s	   420	  9000 0 ));
+DATA(insert (	9001	 20   23 3 s	   416	  9000 0 ));
+DATA(insert (	9001	 20   23 4 s	   430	  9000 0 ));
+DATA(insert (	9001	 20   23 5 s	   419	  9000 0 ));
+DATA(insert (	9001	 21   21 1 s		95	  9000 0 ));
+DATA(insert (	9001	 21   21 2 s	   522	  9000 0 ));
+DATA(insert (	9001	 21   21 3 s		94	  9000 0 ));
+DATA(insert (	9001	 21   21 4 s	   524	  9000 0 ));
+DATA(insert (	9001	 21   21 5 s	   520	  9000 0 ));
+DATA(insert (	9001	 21   20 1 s	  1864	  9000 0 ));
+DATA(insert (	9001	 21   20 2 s	  1866	  9000 0 ));
+DATA(insert (	9001	 21   20 3 s	  1862	  9000 0 ));
+DATA(insert (	9001	 21   20 4 s	  1867	  9000 0 ));
+DATA(insert (	9001	 21   20 5 s	  1865	  9000 0 ));
+DATA(insert (	9001	 21   23 1 s	   534	  9000 0 ));
+DATA(insert (	9001	 21   23 2 s	   540	  9000 0 ));
+DATA(insert (	9001	 21   23 3 s	   532	  9000 0 ));
+DATA(insert (	9001	 21   23 4 s	   542	  9000 0 ));
+DATA(insert (	9001	 21   23 5 s	   536	  9000 0 ));
+DATA(insert (	9001	 23   23 1 s		97	  9000 0 ));
+DATA(insert (	9001	 23   23 2 s	   523	  9000 0 ));
+DATA(insert (	9001	 23   23 3 s		96	  9000 0 ));
+DATA(insert (	9001	 23   23 4 s	   525	  9000 0 ));
+DATA(insert (	9001	 23   23 5 s	   521	  9000 0 ));
+DATA(insert (	9001	 23   21 1 s	   535	  9000 0 ));
+DATA(insert (	9001	 23   21 2 s	   541	  9000 0 ));
+DATA(insert (	9001	 23   21 3 s	   533	  9000 0 ));
+DATA(insert (	9001	 23   21 4 s	   543	  9000 0 ));
+DATA(insert (	9001	 23   21 5 s	   537	  9000 0 ));
+DATA(insert (	9001	 23   20 1 s		37	  9000 0 ));
+DATA(insert (	9001	 23   20 2 s		80	  9000 0 ));
+DATA(insert (	9001	 23   20 3 s		15	  9000 0 ));
+DATA(insert (	9001	 23   20 4 s		82	  9000 0 ));
+DATA(insert (	9001	 23   20 5 s		76	  9000 0 ));
 
 #endif   /* PG_AMOP_H */

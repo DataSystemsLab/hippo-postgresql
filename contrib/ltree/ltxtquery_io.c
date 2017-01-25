@@ -350,7 +350,7 @@ queryin(char *buf)
 				 errmsg("ltxtquery is too large")));
 	commonlen = COMPUTESIZE(state.num, state.sumlen);
 
-	query = (ltxtquery *) palloc(commonlen);
+	query = (ltxtquery *) palloc0(commonlen);
 	SET_VARSIZE(query, commonlen);
 	query->size = state.num;
 	ptr = GETQUERY(query);
@@ -416,6 +416,9 @@ while( ( (inf)->cur - (inf)->buf ) + (addsize) + 1 >= (inf)->buflen ) \
 static void
 infix(INFIX *in, bool first)
 {
+	/* since this function recurses, it could be driven to stack overflow. */
+	check_stack_depth();
+
 	if (in->curpol->type == VAL)
 	{
 		char	   *op = in->op + in->curpol->distance;

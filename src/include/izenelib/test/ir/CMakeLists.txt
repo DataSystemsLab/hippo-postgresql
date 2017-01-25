@@ -1,4 +1,0 @@
-ADD_SUBDIRECTORY(index_manager)
-ADD_SUBDIRECTORY(id_manager)
-ADD_SUBDIRECTORY(Zambezi)
-ADD_SUBDIRECTORY(be_index)

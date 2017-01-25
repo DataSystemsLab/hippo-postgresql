@@ -3,7 +3,7 @@
  * pl_exec.c		- Executor for the PL/pgSQL
  *			  procedural language
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -41,8 +41,6 @@
 #include "utils/snapmgr.h"
 #include "utils/typcache.h"
 
-
-static const char *const raise_skip_msg = "RAISE";
 
 typedef struct
 {
@@ -232,7 +230,8 @@ static Datum exec_eval_expr(PLpgSQL_execstate *estate,
 			   Oid *rettype,
 			   int32 *rettypmod);
 static int exec_run_select(PLpgSQL_execstate *estate,
-				PLpgSQL_expr *expr, long maxtuples, Portal *portalP);
+				PLpgSQL_expr *expr, long maxtuples, Portal *portalP,
+				bool parallelOK);
 static int exec_for_query(PLpgSQL_execstate *estate, PLpgSQL_stmt_forq *stmt,
 			   Portal portal, bool prefetch_ok);
 static ParamListInfo setup_param_list(PLpgSQL_execstate *estate,
@@ -424,8 +423,8 @@ plpgsql_exec_function(PLpgSQL_function *func, FunctionCallInfo fcinfo,
 	/*
 	 * Let the instrumentation plugin peek at this function
 	 */
-	if (*plugin_ptr && (*plugin_ptr)->func_beg)
-		((*plugin_ptr)->func_beg) (&estate, func);
+	if (*plpgsql_plugin_ptr && (*plpgsql_plugin_ptr)->func_beg)
+		((*plpgsql_plugin_ptr)->func_beg) (&estate, func);
 
 	/*
 	 * Now call the toplevel block of statements
@@ -437,19 +436,9 @@ plpgsql_exec_function(PLpgSQL_function *func, FunctionCallInfo fcinfo,
 	{
 		estate.err_stmt = NULL;
 		estate.err_text = NULL;
-
-		/*
-		 * Provide a more helpful message if a CONTINUE has been used outside
-		 * the context it can work in.
-		 */
-		if (rc == PLPGSQL_RC_CONTINUE)
-			ereport(ERROR,
-					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errmsg("CONTINUE cannot be used outside a loop")));
-		else
-			ereport(ERROR,
-			   (errcode(ERRCODE_S_R_E_FUNCTION_EXECUTED_NO_RETURN_STATEMENT),
-				errmsg("control reached end of function without RETURN")));
+		ereport(ERROR,
+				(errcode(ERRCODE_S_R_E_FUNCTION_EXECUTED_NO_RETURN_STATEMENT),
+				 errmsg("control reached end of function without RETURN")));
 	}
 
 	/*
@@ -567,8 +556,8 @@ plpgsql_exec_function(PLpgSQL_function *func, FunctionCallInfo fcinfo,
 	/*
 	 * Let the instrumentation plugin peek at this function
 	 */
-	if (*plugin_ptr && (*plugin_ptr)->func_end)
-		((*plugin_ptr)->func_end) (&estate, func);
+	if (*plpgsql_plugin_ptr && (*plpgsql_plugin_ptr)->func_end)
+		((*plpgsql_plugin_ptr)->func_end) (&estate, func);
 
 	/* Clean up any leftover temporary memory */
 	plpgsql_destroy_econtext(&estate);
@@ -778,8 +767,8 @@ plpgsql_exec_trigger(PLpgSQL_function *func,
 	/*
 	 * Let the instrumentation plugin peek at this function
 	 */
-	if (*plugin_ptr && (*plugin_ptr)->func_beg)
-		((*plugin_ptr)->func_beg) (&estate, func);
+	if (*plpgsql_plugin_ptr && (*plpgsql_plugin_ptr)->func_beg)
+		((*plpgsql_plugin_ptr)->func_beg) (&estate, func);
 
 	/*
 	 * Now call the toplevel block of statements
@@ -791,19 +780,9 @@ plpgsql_exec_trigger(PLpgSQL_function *func,
 	{
 		estate.err_stmt = NULL;
 		estate.err_text = NULL;
-
-		/*
-		 * Provide a more helpful message if a CONTINUE has been used outside
-		 * the context it can work in.
-		 */
-		if (rc == PLPGSQL_RC_CONTINUE)
-			ereport(ERROR,
-					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errmsg("CONTINUE cannot be used outside a loop")));
-		else
-			ereport(ERROR,
-			   (errcode(ERRCODE_S_R_E_FUNCTION_EXECUTED_NO_RETURN_STATEMENT),
-				errmsg("control reached end of trigger procedure without RETURN")));
+		ereport(ERROR,
+				(errcode(ERRCODE_S_R_E_FUNCTION_EXECUTED_NO_RETURN_STATEMENT),
+		 errmsg("control reached end of trigger procedure without RETURN")));
 	}
 
 	estate.err_stmt = NULL;
@@ -847,8 +826,8 @@ plpgsql_exec_trigger(PLpgSQL_function *func,
 	/*
 	 * Let the instrumentation plugin peek at this function
 	 */
-	if (*plugin_ptr && (*plugin_ptr)->func_end)
-		((*plugin_ptr)->func_end) (&estate, func);
+	if (*plpgsql_plugin_ptr && (*plpgsql_plugin_ptr)->func_end)
+		((*plpgsql_plugin_ptr)->func_end) (&estate, func);
 
 	/* Clean up any leftover temporary memory */
 	plpgsql_destroy_econtext(&estate);
@@ -906,8 +885,8 @@ plpgsql_exec_event_trigger(PLpgSQL_function *func, EventTriggerData *trigdata)
 	/*
 	 * Let the instrumentation plugin peek at this function
 	 */
-	if (*plugin_ptr && (*plugin_ptr)->func_beg)
-		((*plugin_ptr)->func_beg) (&estate, func);
+	if (*plpgsql_plugin_ptr && (*plpgsql_plugin_ptr)->func_beg)
+		((*plpgsql_plugin_ptr)->func_beg) (&estate, func);
 
 	/*
 	 * Now call the toplevel block of statements
@@ -919,19 +898,9 @@ plpgsql_exec_event_trigger(PLpgSQL_function *func, EventTriggerData *trigdata)
 	{
 		estate.err_stmt = NULL;
 		estate.err_text = NULL;
-
-		/*
-		 * Provide a more helpful message if a CONTINUE has been used outside
-		 * the context it can work in.
-		 */
-		if (rc == PLPGSQL_RC_CONTINUE)
-			ereport(ERROR,
-					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errmsg("CONTINUE cannot be used outside a loop")));
-		else
-			ereport(ERROR,
-			   (errcode(ERRCODE_S_R_E_FUNCTION_EXECUTED_NO_RETURN_STATEMENT),
-				errmsg("control reached end of trigger procedure without RETURN")));
+		ereport(ERROR,
+				(errcode(ERRCODE_S_R_E_FUNCTION_EXECUTED_NO_RETURN_STATEMENT),
+		 errmsg("control reached end of trigger procedure without RETURN")));
 	}
 
 	estate.err_stmt = NULL;
@@ -940,8 +909,8 @@ plpgsql_exec_event_trigger(PLpgSQL_function *func, EventTriggerData *trigdata)
 	/*
 	 * Let the instrumentation plugin peek at this function
 	 */
-	if (*plugin_ptr && (*plugin_ptr)->func_end)
-		((*plugin_ptr)->func_end) (&estate, func);
+	if (*plpgsql_plugin_ptr && (*plpgsql_plugin_ptr)->func_end)
+		((*plpgsql_plugin_ptr)->func_end) (&estate, func);
 
 	/* Clean up any leftover temporary memory */
 	plpgsql_destroy_econtext(&estate);
@@ -962,10 +931,6 @@ static void
 plpgsql_exec_error_callback(void *arg)
 {
 	PLpgSQL_execstate *estate = (PLpgSQL_execstate *) arg;
-
-	/* if we are doing RAISE, don't report its location */
-	if (estate->err_text == raise_skip_msg)
-		return;
 
 	if (estate->err_text != NULL)
 	{
@@ -1455,8 +1420,8 @@ exec_stmt(PLpgSQL_execstate *estate, PLpgSQL_stmt *stmt)
 	estate->err_stmt = stmt;
 
 	/* Let the plugin know that we are about to execute this statement */
-	if (*plugin_ptr && (*plugin_ptr)->stmt_beg)
-		((*plugin_ptr)->stmt_beg) (estate, stmt);
+	if (*plpgsql_plugin_ptr && (*plpgsql_plugin_ptr)->stmt_beg)
+		((*plpgsql_plugin_ptr)->stmt_beg) (estate, stmt);
 
 	CHECK_FOR_INTERRUPTS();
 
@@ -1564,8 +1529,8 @@ exec_stmt(PLpgSQL_execstate *estate, PLpgSQL_stmt *stmt)
 	}
 
 	/* Let the plugin know that we have finished executing this statement */
-	if (*plugin_ptr && (*plugin_ptr)->stmt_end)
-		((*plugin_ptr)->stmt_end) (estate, stmt);
+	if (*plpgsql_plugin_ptr && (*plpgsql_plugin_ptr)->stmt_end)
+		((*plpgsql_plugin_ptr)->stmt_end) (estate, stmt);
 
 	estate->err_stmt = save_estmt;
 
@@ -1599,7 +1564,7 @@ exec_stmt_perform(PLpgSQL_execstate *estate, PLpgSQL_stmt_perform *stmt)
 {
 	PLpgSQL_expr *expr = stmt->expr;
 
-	(void) exec_run_select(estate, expr, 0, NULL);
+	(void) exec_run_select(estate, expr, 0, NULL, true);
 	exec_set_found(estate, (estate->eval_processed != 0));
 	exec_eval_cleanup(estate);
 
@@ -1636,8 +1601,8 @@ exec_stmt_getdiag(PLpgSQL_execstate *estate, PLpgSQL_stmt_getdiag *stmt)
 		{
 			case PLPGSQL_GETDIAG_ROW_COUNT:
 				exec_assign_value(estate, var,
-								  UInt32GetDatum(estate->eval_processed),
-								  false, INT4OID, -1);
+								  UInt64GetDatum(estate->eval_processed),
+								  false, INT8OID, -1);
 				break;
 
 			case PLPGSQL_GETDIAG_RESULT_OID:
@@ -2143,7 +2108,7 @@ exec_stmt_fors(PLpgSQL_execstate *estate, PLpgSQL_stmt_fors *stmt)
 	/*
 	 * Open the implicit cursor for the statement using exec_run_select
 	 */
-	exec_run_select(estate, stmt->query, 0, &portal);
+	exec_run_select(estate, stmt->query, 0, &portal, false);
 
 	/*
 	 * Execute the loop
@@ -2350,7 +2315,7 @@ exec_stmt_foreach_a(PLpgSQL_execstate *estate, PLpgSQL_stmt_foreach_a *stmt)
 		loop_var_elem_type = InvalidOid;
 	}
 	else
-		loop_var_elem_type = get_element_type(exec_get_datum_type(estate,
+		loop_var_elem_type = get_element_type(plpgsql_exec_get_datum_type(estate,
 																  loop_var));
 
 	/*
@@ -2891,7 +2856,7 @@ exec_stmt_return_query(PLpgSQL_execstate *estate,
 					   PLpgSQL_stmt_return_query *stmt)
 {
 	Portal		portal;
-	uint32		processed = 0;
+	uint64		processed = 0;
 	TupleConversionMap *tupmap;
 
 	if (!estate->retisset)
@@ -2905,14 +2870,15 @@ exec_stmt_return_query(PLpgSQL_execstate *estate,
 	if (stmt->query != NULL)
 	{
 		/* static query */
-		exec_run_select(estate, stmt->query, 0, &portal);
+		exec_run_select(estate, stmt->query, 0, &portal, true);
 	}
 	else
 	{
 		/* RETURN QUERY EXECUTE */
 		Assert(stmt->dynquery != NULL);
 		portal = exec_dynquery_with_params(estate, stmt->dynquery,
-										   stmt->params, NULL, 0);
+										   stmt->params, NULL,
+										   CURSOR_OPT_PARALLEL_OK);
 	}
 
 	tupmap = convert_tuples_by_position(portal->tupDesc,
@@ -2921,7 +2887,7 @@ exec_stmt_return_query(PLpgSQL_execstate *estate,
 
 	while (true)
 	{
-		int			i;
+		uint64		i;
 
 		SPI_cursor_fetch(portal, true, 50);
 		if (SPI_processed == 0)
@@ -3182,8 +3148,6 @@ exec_stmt_raise(PLpgSQL_execstate *estate, PLpgSQL_stmt_raise *stmt)
 	/*
 	 * Throw the error (may or may not come back)
 	 */
-	estate->err_text = raise_skip_msg;	/* suppress traceback of raise */
-
 	ereport(stmt->elog_level,
 			(err_code ? errcode(err_code) : 0,
 			 errmsg_internal("%s", err_message),
@@ -3199,8 +3163,6 @@ exec_stmt_raise(PLpgSQL_execstate *estate, PLpgSQL_stmt_raise *stmt)
 			 err_generic_string(PG_DIAG_TABLE_NAME, err_table) : 0,
 			 (err_schema != NULL) ?
 			 err_generic_string(PG_DIAG_SCHEMA_NAME, err_schema) : 0));
-
-	estate->err_text = NULL;	/* un-suppress... */
 
 	if (condname != NULL)
 		pfree(condname);
@@ -3325,6 +3287,7 @@ plpgsql_estate_setup(PLpgSQL_execstate *estate,
 	estate->paramLI->parserSetup = (ParserSetupHook) plpgsql_parser_setup;
 	estate->paramLI->parserSetupArg = NULL;		/* filled during use */
 	estate->paramLI->numParams = estate->ndatums;
+	estate->paramLI->paramMask = NULL;
 	estate->params_dirty = false;
 
 	/* set up for use of appropriate simple-expression EState and cast hash */
@@ -3350,9 +3313,7 @@ plpgsql_estate_setup(PLpgSQL_execstate *estate,
 		{
 			shared_cast_context = AllocSetContextCreate(TopMemoryContext,
 														"PLpgSQL cast info",
-													ALLOCSET_DEFAULT_MINSIZE,
-												   ALLOCSET_DEFAULT_INITSIZE,
-												   ALLOCSET_DEFAULT_MAXSIZE);
+													 ALLOCSET_DEFAULT_SIZES);
 			memset(&ctl, 0, sizeof(ctl));
 			ctl.keysize = sizeof(plpgsql_CastHashKey);
 			ctl.entrysize = sizeof(plpgsql_CastHashEntry);
@@ -3387,13 +3348,13 @@ plpgsql_estate_setup(PLpgSQL_execstate *estate,
 	 * pointers so it can call back into PL/pgSQL for doing things like
 	 * variable assignments and stack traces
 	 */
-	if (*plugin_ptr)
+	if (*plpgsql_plugin_ptr)
 	{
-		(*plugin_ptr)->error_callback = plpgsql_exec_error_callback;
-		(*plugin_ptr)->assign_expr = exec_assign_expr;
+		(*plpgsql_plugin_ptr)->error_callback = plpgsql_exec_error_callback;
+		(*plpgsql_plugin_ptr)->assign_expr = exec_assign_expr;
 
-		if ((*plugin_ptr)->func_setup)
-			((*plugin_ptr)->func_setup) (estate, func);
+		if ((*plpgsql_plugin_ptr)->func_setup)
+			((*plpgsql_plugin_ptr)->func_setup) (estate, func);
 	}
 }
 
@@ -3616,7 +3577,7 @@ exec_stmt_execsql(PLpgSQL_execstate *estate,
 	if (stmt->into)
 	{
 		SPITupleTable *tuptab = SPI_tuptable;
-		uint32		n = SPI_processed;
+		uint64		n = SPI_processed;
 		PLpgSQL_rec *rec = NULL;
 		PLpgSQL_row *row = NULL;
 
@@ -3806,7 +3767,7 @@ exec_stmt_dynexecute(PLpgSQL_execstate *estate,
 	if (stmt->into)
 	{
 		SPITupleTable *tuptab = SPI_tuptable;
-		uint32		n = SPI_processed;
+		uint64		n = SPI_processed;
 		PLpgSQL_rec *rec = NULL;
 		PLpgSQL_row *row = NULL;
 
@@ -4080,7 +4041,7 @@ exec_stmt_fetch(PLpgSQL_execstate *estate, PLpgSQL_stmt_fetch *stmt)
 	SPITupleTable *tuptab;
 	Portal		portal;
 	char	   *curname;
-	uint32		n;
+	uint64		n;
 
 	/* ----------
 	 * Get the portal of the cursor by name
@@ -4795,7 +4756,7 @@ exec_eval_datum(PLpgSQL_execstate *estate,
 }
 
 /*
- * exec_get_datum_type				Get datatype of a PLpgSQL_datum
+ * plpgsql_exec_get_datum_type				Get datatype of a PLpgSQL_datum
  *
  * This is the same logic as in exec_eval_datum, except that it can handle
  * some cases where exec_eval_datum has to fail; specifically, we may have
@@ -4803,8 +4764,8 @@ exec_eval_datum(PLpgSQL_execstate *estate,
  * happen only for a trigger's NEW/OLD records.)
  */
 Oid
-exec_get_datum_type(PLpgSQL_execstate *estate,
-					PLpgSQL_datum *datum)
+plpgsql_exec_get_datum_type(PLpgSQL_execstate *estate,
+							PLpgSQL_datum *datum)
 {
 	Oid			typeid;
 
@@ -4879,15 +4840,15 @@ exec_get_datum_type(PLpgSQL_execstate *estate,
 }
 
 /*
- * exec_get_datum_type_info			Get datatype etc of a PLpgSQL_datum
+ * plpgsql_exec_get_datum_type_info			Get datatype etc of a PLpgSQL_datum
  *
- * An extended version of exec_get_datum_type, which also retrieves the
+ * An extended version of plpgsql_exec_get_datum_type, which also retrieves the
  * typmod and collation of the datum.
  */
 void
-exec_get_datum_type_info(PLpgSQL_execstate *estate,
-						 PLpgSQL_datum *datum,
-						 Oid *typeid, int32 *typmod, Oid *collation)
+plpgsql_exec_get_datum_type_info(PLpgSQL_execstate *estate,
+								 PLpgSQL_datum *datum,
+								 Oid *typeid, int32 *typmod, Oid *collation)
 {
 	switch (datum->dtype)
 	{
@@ -5059,7 +5020,7 @@ exec_eval_expr(PLpgSQL_execstate *estate,
 	/*
 	 * Else do it the hard way via exec_run_select
 	 */
-	rc = exec_run_select(estate, expr, 2, NULL);
+	rc = exec_run_select(estate, expr, 2, NULL, false);
 	if (rc != SPI_OK_SELECT)
 		ereport(ERROR,
 				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
@@ -5115,7 +5076,8 @@ exec_eval_expr(PLpgSQL_execstate *estate,
  */
 static int
 exec_run_select(PLpgSQL_execstate *estate,
-				PLpgSQL_expr *expr, long maxtuples, Portal *portalP)
+				PLpgSQL_expr *expr, long maxtuples, Portal *portalP,
+				bool parallelOK)
 {
 	ParamListInfo paramLI;
 	int			rc;
@@ -5124,7 +5086,8 @@ exec_run_select(PLpgSQL_execstate *estate,
 	 * On the first call for this expression generate the plan
 	 */
 	if (expr->plan == NULL)
-		exec_prepare_plan(estate, expr, 0);
+		exec_prepare_plan(estate, expr, parallelOK ?
+						  CURSOR_OPT_PARALLEL_OK : 0);
 
 	/*
 	 * If a portal was requested, put the query into the portal
@@ -5186,7 +5149,7 @@ exec_for_query(PLpgSQL_execstate *estate, PLpgSQL_stmt_forq *stmt,
 	SPITupleTable *tuptab;
 	bool		found = false;
 	int			rc = PLPGSQL_RC_OK;
-	int			n;
+	uint64		n;
 
 	/*
 	 * Determine if we assign to a record or a row
@@ -5217,7 +5180,7 @@ exec_for_query(PLpgSQL_execstate *estate, PLpgSQL_stmt_forq *stmt,
 	 * If the query didn't return any rows, set the target to NULL and fall
 	 * through with found = false.
 	 */
-	if (n <= 0)
+	if (n == 0)
 	{
 		exec_move_row(estate, rec, row, NULL, tuptab->tupdesc);
 		exec_eval_cleanup(estate);
@@ -5230,7 +5193,7 @@ exec_for_query(PLpgSQL_execstate *estate, PLpgSQL_stmt_forq *stmt,
 	 */
 	while (n > 0)
 	{
-		int			i;
+		uint64		i;
 
 		for (i = 0; i < n; i++)
 		{
@@ -5595,6 +5558,12 @@ setup_param_list(PLpgSQL_execstate *estate, PLpgSQL_expr *expr)
 		paramLI->parserSetupArg = (void *) expr;
 
 		/*
+		 * Allow parameters that aren't needed by this expression to be
+		 * ignored.
+		 */
+		paramLI->paramMask = expr->paramnos;
+
+		/*
 		 * Also make sure this is set before parser hooks need it.  There is
 		 * no need to save and restore, since the value is always correct once
 		 * set.  (Should be set already, but let's be sure.)
@@ -5628,6 +5597,9 @@ setup_param_list(PLpgSQL_execstate *estate, PLpgSQL_expr *expr)
  * shared param list, where it could get passed to some less-trusted function.
  *
  * Caller should pfree the result after use, if it's not NULL.
+ *
+ * XXX. Could we use ParamListInfo's new paramMask to avoid creating unshared
+ * parameter lists?
  */
 static ParamListInfo
 setup_unshared_param_list(PLpgSQL_execstate *estate, PLpgSQL_expr *expr)
@@ -5659,6 +5631,7 @@ setup_unshared_param_list(PLpgSQL_execstate *estate, PLpgSQL_expr *expr)
 		paramLI->parserSetup = (ParserSetupHook) plpgsql_parser_setup;
 		paramLI->parserSetupArg = (void *) expr;
 		paramLI->numParams = estate->ndatums;
+		paramLI->paramMask = NULL;
 
 		/*
 		 * Instantiate values for "safe" parameters of the expression.  We
@@ -5732,25 +5705,20 @@ plpgsql_param_fetch(ParamListInfo params, int paramid)
 	/* now we can access the target datum */
 	datum = estate->datums[dno];
 
-	/* need to behave slightly differently for shared and unshared arrays */
-	if (params != estate->paramLI)
+	/*
+	 * Since copyParamList() or SerializeParamList() will try to materialize
+	 * every single parameter slot, it's important to do nothing when asked
+	 * for a datum that's not supposed to be used by this SQL expression.
+	 * Otherwise we risk failures in exec_eval_datum(), or copying a lot more
+	 * data than necessary.
+	 */
+	if (!bms_is_member(dno, expr->paramnos))
+		return;
+
+	if (params == estate->paramLI)
 	{
 		/*
-		 * We're being called, presumably from copyParamList(), for cursor
-		 * parameters.  Since copyParamList() will try to materialize every
-		 * single parameter slot, it's important to do nothing when asked for
-		 * a datum that's not supposed to be used by this SQL expression.
-		 * Otherwise we risk failures in exec_eval_datum(), not to mention
-		 * possibly copying a lot more data than the cursor actually uses.
-		 */
-		if (!bms_is_member(dno, expr->paramnos))
-			return;
-	}
-	else
-	{
-		/*
-		 * Normal evaluation cases.  We don't need to sanity-check dno, but we
-		 * do need to mark the shared params array dirty if we're about to
+		 * We need to mark the shared params array dirty if we're about to
 		 * evaluate a resettable datum.
 		 */
 		switch (datum->dtype)

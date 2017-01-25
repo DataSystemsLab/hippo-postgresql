@@ -3,7 +3,7 @@
  * json.c
  *		JSON data type support.
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -31,9 +31,6 @@
 #include "utils/jsonapi.h"
 #include "utils/typcache.h"
 #include "utils/syscache.h"
-
-/* String to output for infinite dates and timestamps */
-#define DT_INFINITY "\"infinity\""
 
 /*
  * The context of the parser is maintained by the recursive descent
@@ -68,9 +65,19 @@ typedef enum					/* type categories for datum_to_json */
 	JSONTYPE_OTHER				/* all else */
 } JsonTypeCategory;
 
+typedef struct JsonAggState
+{
+	StringInfo	str;
+	JsonTypeCategory key_category;
+	Oid			key_output_func;
+	JsonTypeCategory val_category;
+	Oid			val_output_func;
+} JsonAggState;
+
 static inline void json_lex(JsonLexContext *lex);
 static inline void json_lex_string(JsonLexContext *lex);
-static inline void json_lex_number(JsonLexContext *lex, char *s, bool *num_err);
+static inline void json_lex_number(JsonLexContext *lex, char *s,
+				bool *num_err, int *total_len);
 static inline void parse_scalar(JsonLexContext *lex, JsonSemAction *sem);
 static void parse_object_field(JsonLexContext *lex, JsonSemAction *sem);
 static void parse_object(JsonLexContext *lex, JsonSemAction *sem);
@@ -176,13 +183,20 @@ lex_expect(JsonParseContext ctx, JsonLexContext *lex, JsonTokenType token)
 	 (c) == '_' || \
 	 IS_HIGHBIT_SET(c))
 
-/* utility function to check if a string is a valid JSON number */
-extern bool
+/*
+ * Utility function to check if a string is a valid JSON number.
+ *
+ * str is of length len, and need not be null-terminated.
+ */
+bool
 IsValidJsonNumber(const char *str, int len)
 {
 	bool		numeric_error;
+	int			total_len;
 	JsonLexContext dummy_lex;
 
+	if (len <= 0)
+		return false;
 
 	/*
 	 * json_lex_number expects a leading  '-' to have been eaten already.
@@ -201,9 +215,9 @@ IsValidJsonNumber(const char *str, int len)
 		dummy_lex.input_length = len;
 	}
 
-	json_lex_number(&dummy_lex, dummy_lex.input, &numeric_error);
+	json_lex_number(&dummy_lex, dummy_lex.input, &numeric_error, &total_len);
 
-	return !numeric_error;
+	return (!numeric_error) && (total_len == dummy_lex.input_length);
 }
 
 /*
@@ -351,16 +365,16 @@ pg_parse_json(JsonLexContext *lex, JsonSemAction *sem)
 int
 json_count_array_elements(JsonLexContext *lex)
 {
-	JsonLexContext	copylex;
-	int				count;
+	JsonLexContext copylex;
+	int			count;
 
 	/*
 	 * It's safe to do this with a shallow copy because the lexical routines
-	 * don't scribble on the input. They do scribble on the other pointers etc,
-	 * so doing this with a copy makes that safe.
+	 * don't scribble on the input. They do scribble on the other pointers
+	 * etc, so doing this with a copy makes that safe.
 	 */
 	memcpy(&copylex, lex, sizeof(JsonLexContext));
-	copylex.strval = NULL; /* not interested in values here */
+	copylex.strval = NULL;		/* not interested in values here */
 	copylex.lex_level++;
 
 	count = 0;
@@ -481,6 +495,8 @@ parse_object(JsonLexContext *lex, JsonSemAction *sem)
 	json_struct_action oend = sem->object_end;
 	JsonTokenType tok;
 
+	check_stack_depth();
+
 	if (ostart != NULL)
 		(*ostart) (sem->semstate);
 
@@ -492,7 +508,7 @@ parse_object(JsonLexContext *lex, JsonSemAction *sem)
 	 */
 	lex->lex_level++;
 
-	/* we know this will succeeed, just clearing the token */
+	/* we know this will succeed, just clearing the token */
 	lex_expect(JSON_PARSE_OBJECT_START, lex, JSON_TOKEN_OBJECT_START);
 
 	tok = lex_peek(lex);
@@ -558,6 +574,8 @@ parse_array(JsonLexContext *lex, JsonSemAction *sem)
 	 */
 	json_struct_action astart = sem->array_start;
 	json_struct_action aend = sem->array_end;
+
+	check_stack_depth();
 
 	if (astart != NULL)
 		(*astart) (sem->semstate);
@@ -659,7 +677,7 @@ json_lex(JsonLexContext *lex)
 				break;
 			case '-':
 				/* Negative number. */
-				json_lex_number(lex, s + 1, NULL);
+				json_lex_number(lex, s + 1, NULL, NULL);
 				lex->token_type = JSON_TOKEN_NUMBER;
 				break;
 			case '0':
@@ -673,7 +691,7 @@ json_lex(JsonLexContext *lex)
 			case '8':
 			case '9':
 				/* Positive number. */
-				json_lex_number(lex, s, NULL);
+				json_lex_number(lex, s, NULL, NULL);
 				lex->token_type = JSON_TOKEN_NUMBER;
 				break;
 			default:
@@ -973,7 +991,7 @@ json_lex_string(JsonLexContext *lex)
 	lex->token_terminator = s + 1;
 }
 
-/*-------------------------------------------------------------------------
+/*
  * The next token in the input stream is known to be a number; lex it.
  *
  * In JSON, a number consists of four parts:
@@ -994,29 +1012,30 @@ json_lex_string(JsonLexContext *lex)
  *	   followed by at least one digit.)
  *
  * The 's' argument to this function points to the ostensible beginning
- * of part 2 - i.e. the character after any optional minus sign, and the
+ * of part 2 - i.e. the character after any optional minus sign, or the
  * first character of the string if there is none.
  *
- *-------------------------------------------------------------------------
+ * If num_err is not NULL, we return an error flag to *num_err rather than
+ * raising an error for a badly-formed number.  Also, if total_len is not NULL
+ * the distance from lex->input to the token end+1 is returned to *total_len.
  */
 static inline void
-json_lex_number(JsonLexContext *lex, char *s, bool *num_err)
+json_lex_number(JsonLexContext *lex, char *s,
+				bool *num_err, int *total_len)
 {
 	bool		error = false;
-	char	   *p;
-	int			len;
+	int			len = s - lex->input;
 
-	len = s - lex->input;
 	/* Part (1): leading sign indicator. */
 	/* Caller already did this for us; so do nothing. */
 
 	/* Part (2): parse main digit string. */
-	if (*s == '0')
+	if (len < lex->input_length && *s == '0')
 	{
 		s++;
 		len++;
 	}
-	else if (*s >= '1' && *s <= '9')
+	else if (len < lex->input_length && *s >= '1' && *s <= '9')
 	{
 		do
 		{
@@ -1071,18 +1090,23 @@ json_lex_number(JsonLexContext *lex, char *s, bool *num_err)
 	 * here should be considered part of the token for error-reporting
 	 * purposes.
 	 */
-	for (p = s; len < lex->input_length && JSON_ALPHANUMERIC_CHAR(*p); p++, len++)
+	for (; len < lex->input_length && JSON_ALPHANUMERIC_CHAR(*s); s++, len++)
 		error = true;
+
+	if (total_len != NULL)
+		*total_len = len;
 
 	if (num_err != NULL)
 	{
-		/* let the caller handle the error */
+		/* let the caller handle any error */
 		*num_err = error;
 	}
 	else
 	{
+		/* return token endpoint */
 		lex->prev_token_terminator = lex->token_terminator;
-		lex->token_terminator = p;
+		lex->token_terminator = s;
+		/* handle error if any */
 		if (error)
 			report_invalid_token(lex);
 	}
@@ -1424,6 +1448,8 @@ datum_to_json(Datum val, bool is_null, StringInfo result,
 	char	   *outputstr;
 	text	   *jsontext;
 
+	check_stack_depth();
+
 	/* callers are expected to ensure that null keys are not passed in */
 	Assert(!(key_scalar && is_null));
 
@@ -1477,19 +1503,16 @@ datum_to_json(Datum val, bool is_null, StringInfo result,
 				char		buf[MAXDATELEN + 1];
 
 				date = DatumGetDateADT(val);
-
+				/* Same as date_out(), but forcing DateStyle */
 				if (DATE_NOT_FINITE(date))
-				{
-					/* we have to format infinity ourselves */
-					appendStringInfoString(result, DT_INFINITY);
-				}
+					EncodeSpecialDate(date, buf);
 				else
 				{
 					j2date(date + POSTGRES_EPOCH_JDATE,
 						   &(tm.tm_year), &(tm.tm_mon), &(tm.tm_mday));
 					EncodeDateOnly(&tm, USE_XSD_DATES, buf);
-					appendStringInfo(result, "\"%s\"", buf);
 				}
+				appendStringInfo(result, "\"%s\"", buf);
 			}
 			break;
 		case JSONTYPE_TIMESTAMP:
@@ -1500,21 +1523,16 @@ datum_to_json(Datum val, bool is_null, StringInfo result,
 				char		buf[MAXDATELEN + 1];
 
 				timestamp = DatumGetTimestamp(val);
-
+				/* Same as timestamp_out(), but forcing DateStyle */
 				if (TIMESTAMP_NOT_FINITE(timestamp))
-				{
-					/* we have to format infinity ourselves */
-					appendStringInfoString(result, DT_INFINITY);
-				}
+					EncodeSpecialTimestamp(timestamp, buf);
 				else if (timestamp2tm(timestamp, NULL, &tm, &fsec, NULL, NULL) == 0)
-				{
 					EncodeDateTime(&tm, fsec, false, 0, NULL, USE_XSD_DATES, buf);
-					appendStringInfo(result, "\"%s\"", buf);
-				}
 				else
 					ereport(ERROR,
 							(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
 							 errmsg("timestamp out of range")));
+				appendStringInfo(result, "\"%s\"", buf);
 			}
 			break;
 		case JSONTYPE_TIMESTAMPTZ:
@@ -1526,22 +1544,17 @@ datum_to_json(Datum val, bool is_null, StringInfo result,
 				const char *tzn = NULL;
 				char		buf[MAXDATELEN + 1];
 
-				timestamp = DatumGetTimestamp(val);
-
+				timestamp = DatumGetTimestampTz(val);
+				/* Same as timestamptz_out(), but forcing DateStyle */
 				if (TIMESTAMP_NOT_FINITE(timestamp))
-				{
-					/* we have to format infinity ourselves */
-					appendStringInfoString(result, DT_INFINITY);
-				}
+					EncodeSpecialTimestamp(timestamp, buf);
 				else if (timestamp2tm(timestamp, &tz, &tm, &fsec, &tzn, NULL) == 0)
-				{
 					EncodeDateTime(&tm, fsec, true, tz, tzn, USE_XSD_DATES, buf);
-					appendStringInfo(result, "\"%s\"", buf);
-				}
 				else
 					ereport(ERROR,
 							(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
 							 errmsg("timestamp out of range")));
+				appendStringInfo(result, "\"%s\"", buf);
 			}
 			break;
 		case JSONTYPE_JSON:
@@ -1858,18 +1871,10 @@ to_json(PG_FUNCTION_ARGS)
 Datum
 json_agg_transfn(PG_FUNCTION_ARGS)
 {
-	Oid			val_type = get_fn_expr_argtype(fcinfo->flinfo, 1);
 	MemoryContext aggcontext,
 				oldcontext;
-	StringInfo	state;
+	JsonAggState *state;
 	Datum		val;
-	JsonTypeCategory tcategory;
-	Oid			outfuncoid;
-
-	if (val_type == InvalidOid)
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("could not determine input data type")));
 
 	if (!AggCheckCallContext(fcinfo, &aggcontext))
 	{
@@ -1879,50 +1884,59 @@ json_agg_transfn(PG_FUNCTION_ARGS)
 
 	if (PG_ARGISNULL(0))
 	{
+		Oid			arg_type = get_fn_expr_argtype(fcinfo->flinfo, 1);
+
+		if (arg_type == InvalidOid)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("could not determine input data type")));
+
 		/*
-		 * Make this StringInfo in a context where it will persist for the
+		 * Make this state object in a context where it will persist for the
 		 * duration of the aggregate call.  MemoryContextSwitchTo is only
 		 * needed the first time, as the StringInfo routines make sure they
 		 * use the right context to enlarge the object if necessary.
 		 */
 		oldcontext = MemoryContextSwitchTo(aggcontext);
-		state = makeStringInfo();
+		state = (JsonAggState *) palloc(sizeof(JsonAggState));
+		state->str = makeStringInfo();
 		MemoryContextSwitchTo(oldcontext);
 
-		appendStringInfoChar(state, '[');
+		appendStringInfoChar(state->str, '[');
+		json_categorize_type(arg_type, &state->val_category,
+							 &state->val_output_func);
 	}
 	else
 	{
-		state = (StringInfo) PG_GETARG_POINTER(0);
-		appendStringInfoString(state, ", ");
+		state = (JsonAggState *) PG_GETARG_POINTER(0);
+		appendStringInfoString(state->str, ", ");
 	}
 
 	/* fast path for NULLs */
 	if (PG_ARGISNULL(1))
 	{
-		datum_to_json((Datum) 0, true, state, JSONTYPE_NULL, InvalidOid, false);
+		datum_to_json((Datum) 0, true, state->str, JSONTYPE_NULL,
+					  InvalidOid, false);
 		PG_RETURN_POINTER(state);
 	}
 
 	val = PG_GETARG_DATUM(1);
 
-	/* XXX we do this every time?? */
-	json_categorize_type(val_type,
-						 &tcategory, &outfuncoid);
-
 	/* add some whitespace if structured type and not first item */
 	if (!PG_ARGISNULL(0) &&
-		(tcategory == JSONTYPE_ARRAY || tcategory == JSONTYPE_COMPOSITE))
+		(state->val_category == JSONTYPE_ARRAY ||
+		 state->val_category == JSONTYPE_COMPOSITE))
 	{
-		appendStringInfoString(state, "\n ");
+		appendStringInfoString(state->str, "\n ");
 	}
 
-	datum_to_json(val, false, state, tcategory, outfuncoid, false);
+	datum_to_json(val, false, state->str, state->val_category,
+				  state->val_output_func, false);
 
 	/*
 	 * The transition type for array_agg() is declared to be "internal", which
 	 * is a pass-by-value type the same size as a pointer.  So we can safely
-	 * pass the ArrayBuildState pointer through nodeAgg.c's machinations.
+	 * pass the JsonAggState pointer through nodeAgg.c's machinations.
 	 */
 	PG_RETURN_POINTER(state);
 }
@@ -1933,19 +1947,21 @@ json_agg_transfn(PG_FUNCTION_ARGS)
 Datum
 json_agg_finalfn(PG_FUNCTION_ARGS)
 {
-	StringInfo	state;
+	JsonAggState *state;
 
 	/* cannot be called directly because of internal-type argument */
 	Assert(AggCheckCallContext(fcinfo, NULL));
 
-	state = PG_ARGISNULL(0) ? NULL : (StringInfo) PG_GETARG_POINTER(0);
+	state = PG_ARGISNULL(0) ?
+		NULL :
+		(JsonAggState *) PG_GETARG_POINTER(0);
 
 	/* NULL result for no rows in, as is standard with aggregates */
 	if (state == NULL)
 		PG_RETURN_NULL();
 
 	/* Else return state with appropriate array terminator added */
-	PG_RETURN_TEXT_P(catenate_stringinfo_string(state, "]"));
+	PG_RETURN_TEXT_P(catenate_stringinfo_string(state->str, "]"));
 }
 
 /*
@@ -1956,10 +1972,9 @@ json_agg_finalfn(PG_FUNCTION_ARGS)
 Datum
 json_object_agg_transfn(PG_FUNCTION_ARGS)
 {
-	Oid			val_type;
 	MemoryContext aggcontext,
 				oldcontext;
-	StringInfo	state;
+	JsonAggState *state;
 	Datum		arg;
 
 	if (!AggCheckCallContext(fcinfo, &aggcontext))
@@ -1970,6 +1985,8 @@ json_object_agg_transfn(PG_FUNCTION_ARGS)
 
 	if (PG_ARGISNULL(0))
 	{
+		Oid			arg_type;
+
 		/*
 		 * Make the StringInfo in a context where it will persist for the
 		 * duration of the aggregate call. Switching context is only needed
@@ -1977,15 +1994,36 @@ json_object_agg_transfn(PG_FUNCTION_ARGS)
 		 * use the right context to enlarge the object if necessary.
 		 */
 		oldcontext = MemoryContextSwitchTo(aggcontext);
-		state = makeStringInfo();
+		state = (JsonAggState *) palloc(sizeof(JsonAggState));
+		state->str = makeStringInfo();
 		MemoryContextSwitchTo(oldcontext);
 
-		appendStringInfoString(state, "{ ");
+		arg_type = get_fn_expr_argtype(fcinfo->flinfo, 1);
+
+		if (arg_type == InvalidOid)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("could not determine data type for argument 1")));
+
+		json_categorize_type(arg_type, &state->key_category,
+							 &state->key_output_func);
+
+		arg_type = get_fn_expr_argtype(fcinfo->flinfo, 2);
+
+		if (arg_type == InvalidOid)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("could not determine data type for argument 2")));
+
+		json_categorize_type(arg_type, &state->val_category,
+							 &state->val_output_func);
+
+		appendStringInfoString(state->str, "{ ");
 	}
 	else
 	{
-		state = (StringInfo) PG_GETARG_POINTER(0);
-		appendStringInfoString(state, ", ");
+		state = (JsonAggState *) PG_GETARG_POINTER(0);
+		appendStringInfoString(state->str, ", ");
 	}
 
 	/*
@@ -1995,12 +2033,6 @@ json_object_agg_transfn(PG_FUNCTION_ARGS)
 	 * type UNKNOWN, which fortunately does not matter to us, since
 	 * unknownout() works fine.
 	 */
-	val_type = get_fn_expr_argtype(fcinfo->flinfo, 1);
-
-	if (val_type == InvalidOid)
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("could not determine data type for argument %d", 1)));
 
 	if (PG_ARGISNULL(1))
 		ereport(ERROR,
@@ -2009,23 +2041,18 @@ json_object_agg_transfn(PG_FUNCTION_ARGS)
 
 	arg = PG_GETARG_DATUM(1);
 
-	add_json(arg, false, state, val_type, true);
+	datum_to_json(arg, false, state->str, state->key_category,
+				  state->key_output_func, true);
 
-	appendStringInfoString(state, " : ");
-
-	val_type = get_fn_expr_argtype(fcinfo->flinfo, 2);
-
-	if (val_type == InvalidOid)
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("could not determine data type for argument %d", 2)));
+	appendStringInfoString(state->str, " : ");
 
 	if (PG_ARGISNULL(2))
 		arg = (Datum) 0;
 	else
 		arg = PG_GETARG_DATUM(2);
 
-	add_json(arg, PG_ARGISNULL(2), state, val_type, false);
+	datum_to_json(arg, PG_ARGISNULL(2), state->str, state->val_category,
+				  state->val_output_func, false);
 
 	PG_RETURN_POINTER(state);
 }
@@ -2036,19 +2063,19 @@ json_object_agg_transfn(PG_FUNCTION_ARGS)
 Datum
 json_object_agg_finalfn(PG_FUNCTION_ARGS)
 {
-	StringInfo	state;
+	JsonAggState *state;
 
 	/* cannot be called directly because of internal-type argument */
 	Assert(AggCheckCallContext(fcinfo, NULL));
 
-	state = PG_ARGISNULL(0) ? NULL : (StringInfo) PG_GETARG_POINTER(0);
+	state = PG_ARGISNULL(0) ? NULL : (JsonAggState *) PG_GETARG_POINTER(0);
 
 	/* NULL result for no rows in, as is standard with aggregates */
 	if (state == NULL)
 		PG_RETURN_NULL();
 
 	/* Else return state with appropriate object terminator added */
-	PG_RETURN_TEXT_P(catenate_stringinfo_string(state, " }"));
+	PG_RETURN_TEXT_P(catenate_stringinfo_string(state->str, " }"));
 }
 
 /*
@@ -2402,7 +2429,7 @@ escape_json(StringInfo buf, const char *str)
 {
 	const char *p;
 
-	appendStringInfoCharMacro(buf, '\"');
+	appendStringInfoCharMacro(buf, '"');
 	for (p = str; *p; p++)
 	{
 		switch (*p)
@@ -2436,7 +2463,7 @@ escape_json(StringInfo buf, const char *str)
 				break;
 		}
 	}
-	appendStringInfoCharMacro(buf, '\"');
+	appendStringInfoCharMacro(buf, '"');
 }
 
 /*

@@ -170,33 +170,6 @@ AC_DEFUN([PGAC_STRUCT_ADDRINFO],
 ])])# PGAC_STRUCT_ADDRINFO
 
 
-# PGAC_FUNC_POSIX_SIGNALS
-# -----------------------
-# Check to see if the machine has the POSIX signal interface. Define
-# HAVE_POSIX_SIGNALS if so. Also set the output variable HAVE_POSIX_SIGNALS
-# to yes or no.
-#
-# Note that this test only compiles a test program, it doesn't check
-# whether the routines actually work. If that becomes a problem, make
-# a fancier check.
-AC_DEFUN([PGAC_FUNC_POSIX_SIGNALS],
-[AC_CACHE_CHECK(for POSIX signal interface, pgac_cv_func_posix_signals,
-[AC_LINK_IFELSE([AC_LANG_PROGRAM([#include <signal.h>
-],
-[struct sigaction act, oact;
-sigemptyset(&act.sa_mask);
-act.sa_flags = SA_RESTART;
-sigaction(0, &act, &oact);])],
-[pgac_cv_func_posix_signals=yes],
-[pgac_cv_func_posix_signals=no])])
-if test x"$pgac_cv_func_posix_signals" = xyes ; then
-  AC_DEFINE(HAVE_POSIX_SIGNALS, 1,
-            [Define to 1 if you have the POSIX signal interface.])
-fi
-HAVE_POSIX_SIGNALS=$pgac_cv_func_posix_signals
-AC_SUBST(HAVE_POSIX_SIGNALS)])# PGAC_FUNC_POSIX_SIGNALS
-
-
 # PGAC_FUNC_SNPRINTF_LONG_LONG_INT_MODIFIER
 # ---------------------------------------
 # Determine which length modifier snprintf uses for long long int.  We
@@ -343,4 +316,34 @@ fi
 if test "$pgac_cv_type_locale_t" = 'yes (in xlocale.h)'; then
   AC_DEFINE(LOCALE_T_IN_XLOCALE, 1,
             [Define to 1 if `locale_t' requires <xlocale.h>.])
-fi])])# PGAC_HEADER_XLOCALE
+fi])# PGAC_TYPE_LOCALE_T
+
+
+# PGAC_FUNC_WCSTOMBS_L
+# --------------------
+# Try to find a declaration for wcstombs_l().  It might be in stdlib.h
+# (following the POSIX requirement for wcstombs()), or in locale.h, or in
+# xlocale.h.  If it's in the latter, define WCSTOMBS_L_IN_XLOCALE.
+#
+AC_DEFUN([PGAC_FUNC_WCSTOMBS_L],
+[AC_CACHE_CHECK([for wcstombs_l declaration], pgac_cv_func_wcstombs_l,
+[AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
+[#include <stdlib.h>
+#include <locale.h>],
+[#ifndef wcstombs_l
+(void) wcstombs_l;
+#endif])],
+[pgac_cv_func_wcstombs_l='yes'],
+[AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
+[#include <stdlib.h>
+#include <locale.h>
+#include <xlocale.h>],
+[#ifndef wcstombs_l
+(void) wcstombs_l;
+#endif])],
+[pgac_cv_func_wcstombs_l='yes (in xlocale.h)'],
+[pgac_cv_func_wcstombs_l='no'])])])
+if test "$pgac_cv_func_wcstombs_l" = 'yes (in xlocale.h)'; then
+  AC_DEFINE(WCSTOMBS_L_IN_XLOCALE, 1,
+            [Define to 1 if `wcstombs_l' requires <xlocale.h>.])
+fi])# PGAC_FUNC_WCSTOMBS_L

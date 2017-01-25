@@ -9,7 +9,7 @@
  * of XLogRecData structs by a call to XLogRecordAssemble(). See
  * access/transam/README for details.
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/backend/access/transam/xloginsert.c
@@ -443,7 +443,7 @@ XLogInsert(RmgrId rmid, uint8 info)
 		/*
 		 * Get values needed to decide whether to do full-page writes. Since
 		 * we don't yet have an insertion lock, these could change under us,
-		 * but XLogInsertRecData will recheck them once it has a lock.
+		 * but XLogInsertRecord will recheck them once it has a lock.
 		 */
 		GetFullPageWriteInfo(&RedoRecPtr, &doPageWrites);
 
@@ -701,11 +701,11 @@ XLogRecordAssemble(RmgrId rmid, uint8 info,
 	}
 
 	/* followed by the record's origin, if any */
-	if (include_origin && replorigin_sesssion_origin != InvalidRepOriginId)
+	if (include_origin && replorigin_session_origin != InvalidRepOriginId)
 	{
 		*(scratch++) = XLR_BLOCK_ID_ORIGIN;
-		memcpy(scratch, &replorigin_sesssion_origin, sizeof(replorigin_sesssion_origin));
-		scratch += sizeof(replorigin_sesssion_origin);
+		memcpy(scratch, &replorigin_session_origin, sizeof(replorigin_session_origin));
+		scratch += sizeof(replorigin_session_origin);
 	}
 
 	/* followed by main data, if any */
@@ -997,9 +997,7 @@ InitXLogInsert(void)
 	{
 		xloginsert_cxt = AllocSetContextCreate(TopMemoryContext,
 											   "WAL record construction",
-											   ALLOCSET_DEFAULT_MINSIZE,
-											   ALLOCSET_DEFAULT_INITSIZE,
-											   ALLOCSET_DEFAULT_MAXSIZE);
+											   ALLOCSET_DEFAULT_SIZES);
 	}
 
 	if (registered_buffers == NULL)

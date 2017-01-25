@@ -25,7 +25,7 @@
  * AMs support this.
  *
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/catalog/pg_opclass.h
@@ -228,6 +228,7 @@ DATA(insert (	403		range_ops			PGNSP PGUID 3901  3831 t 0 ));
 DATA(insert (	405		range_ops			PGNSP PGUID 3903  3831 t 0 ));
 DATA(insert (	783		range_ops			PGNSP PGUID 3919  3831 t 0 ));
 DATA(insert (	4000	range_ops			PGNSP PGUID 3474  3831 t 0 ));
+DATA(insert (	4000	box_ops				PGNSP PGUID 5000  603  t 0 ));
 DATA(insert (	4000	quad_point_ops		PGNSP PGUID 4015  600 t 0 ));
 DATA(insert (	4000	kd_point_ops		PGNSP PGUID 4016  600 f 0 ));
 DATA(insert (	4000	text_ops			PGNSP PGUID 4017  25 t 0 ));
@@ -272,42 +273,7 @@ DATA(insert (	3580	pg_lsn_minmax_ops		PGNSP PGUID 4082  3220 t 3220 ));
 DATA(insert (	3580	box_inclusion_ops		PGNSP PGUID 4104   603 t 603 ));
 /* no brin opclass for the geometric types except box */
 
-
-/* HIPPO operator classes */
-/* no HIPPO opclass for bool */
-/*DATA(insert (	3581	bytea_minmax_ops		PGNSP PGUID 4064	17 t 17 ));
-DATA(insert (	3581	char_minmax_ops			PGNSP PGUID 4062	18 t 18 ));
-DATA(insert (	3581	name_minmax_ops			PGNSP PGUID 4065	19 t 19 ));*/
-DATA(insert (	891027	int8_grid_ops			PGNSP PGUID 920411	20 t 20 ));
-DATA(insert (	891027	int2_grid_ops			PGNSP PGUID 920411	21 t 21 ));
-DATA(insert (	891027	int4_grid_ops			PGNSP PGUID 920411	23 t 23 ));
-
-/*DATA(insert (	3581	text_minmax_ops			PGNSP PGUID 4056	25 t 25 ));
-DATA(insert (	3581	oid_minmax_ops			PGNSP PGUID 4068	26 t 26 ));
-DATA(insert (	3581	tid_minmax_ops			PGNSP PGUID 4069	27 t 27 ));
-DATA(insert (	3581	float4_minmax_ops		PGNSP PGUID 4070   700 t 700 ));
-DATA(insert (	3581	float8_minmax_ops		PGNSP PGUID 4070   701 t 701 ));
-DATA(insert (	3581	abstime_minmax_ops		PGNSP PGUID 4072   702 t 702 ));
-DATA(insert (	3581	reltime_minmax_ops		PGNSP PGUID 4073   703 t 703 ));
-DATA(insert (	3581	macaddr_minmax_ops		PGNSP PGUID 4074   829 t 829 ));
-DATA(insert (	3581	inet_minmax_ops			PGNSP PGUID 4075   869 f 869 ));
-DATA(insert (	3581	inet_inclusion_ops		PGNSP PGUID 4102   869 t 869 ));
-DATA(insert (	3581	bpchar_minmax_ops		PGNSP PGUID 4076  1042 t 1042 ));
-DATA(insert (	3581	time_minmax_ops			PGNSP PGUID 4077  1083 t 1083 ));
-DATA(insert (	3581	date_minmax_ops			PGNSP PGUID 4059  1082 t 1082 ));
-DATA(insert (	3581	timestamp_minmax_ops	PGNSP PGUID 4059  1114 t 1114 ));
-DATA(insert (	3581	timestamptz_minmax_ops	PGNSP PGUID 4059  1184 t 1184 ));
-DATA(insert (	3581	interval_minmax_ops		PGNSP PGUID 4078  1186 t 1186 ));
-DATA(insert (	3581	timetz_minmax_ops		PGNSP PGUID 4058  1266 t 1266 ));
-DATA(insert (	3581	bit_minmax_ops			PGNSP PGUID 4079  1560 t 1560 ));
-DATA(insert (	3581	varbit_minmax_ops		PGNSP PGUID 4080  1562 t 1562 ));
-DATA(insert (	3581	numeric_minmax_ops		PGNSP PGUID 4055  1700 t 1700 ));*/
-/* no brin opclass for record, anyarray */
-/*DATA(insert (	3581	uuid_minmax_ops			PGNSP PGUID 4081  2950 t 2950 ));
-DATA(insert (	3581	range_inclusion_ops		PGNSP PGUID 4103  3831 t 3831 ));
-DATA(insert (	3581	pg_lsn_minmax_ops		PGNSP PGUID 4082  3220 t 3220 ));*/
-/* no brin opclass for enum, tsvector, tsquery, jsonb */
-//DATA(insert (	3581	box_inclusion_ops		PGNSP PGUID 4104   603 t 603 ));
-/* no brin opclass for the geometric types except box */
-
+DATA(insert (	9000	int8_hippo_ops			PGNSP PGUID 9001	20 t 20 ));
+DATA(insert (	9000	int2_hippo_ops			PGNSP PGUID 9001	21 t 21 ));
+DATA(insert (	9000	int4_hippo_ops			PGNSP PGUID 9001	23 t 23 ));
 #endif   /* PG_OPCLASS_H */

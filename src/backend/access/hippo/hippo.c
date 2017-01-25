@@ -5,35 +5,90 @@
 #include "access/relscan.h"
 #include "access/xact.h"
 #include "access/xloginsert.h"
-#include "catalog/index.h"
-#include "miscadmin.h"
-#include "pgstat.h"
-#include "catalog/pg_statistic.h"
-#include "fmgr.h"
+#include "access/hippo.h"
 #include "access/htup_details.h"
+#include "access/xlogreader.h"
+
+#include "access/brin.h"
+#include "access/brin_page.h"
+#include "access/brin_pageops.h"
+#include "access/brin_xlog.h"
+
+#include "catalog/index.h"
+#include "catalog/pg_attribute.h"
+#include "catalog/pg_index.h"
 #include "catalog/pg_statistic.h"
 #include "catalog/pg_type.h"
-#include "utils/lsyscache.h"
-#include "utils/selfuncs.h"
-#include "utils/syscache.h"
-#include "storage/bufmgr.h"
-#include "storage/freespace.h"
-#include "utils/memutils.h"
-#include "utils/rel.h"
-#include "utils/snapmgr.h"
-#include "access/hippo.h"
+#include "catalog/pg_am.h"
+
 #include "storage/bufpage.h"
 #include "storage/lmgr.h"
 #include "storage/smgr.h"
-#include "utils/elog.h"
-#include "catalog/pg_attribute.h"
-#include "access/xlogreader.h"
-#include "catalog/pg_index.h"
-#include "access/htup_details.h"
+#include "storage/bufmgr.h"
+#include "storage/freespace.h"
 
+
+#include "utils/lsyscache.h"
+#include "utils/selfuncs.h"
+#include "utils/syscache.h"
+#include "utils/memutils.h"
+#include "utils/rel.h"
+#include "utils/snapmgr.h"
+#include "utils/elog.h"
+#include "utils/index_selfuncs.h"
+
+#include "miscadmin.h"
+#include "pgstat.h"
+#include "fmgr.h"
 #include "ewok.h"
 
 #define SORT_TYPE int16
+
+
+/*
+ * BRIN handler function: return IndexAmRoutine with access method parameters
+ * and callbacks.
+ */
+Datum
+hippohandler(PG_FUNCTION_ARGS)
+{
+	IndexAmRoutine *amroutine = makeNode(IndexAmRoutine);
+
+	amroutine->amstrategies = 5;
+	amroutine->amsupport = 15;
+	amroutine->amcanorder = false;
+	amroutine->amcanorderbyop = false;
+	amroutine->amcanbackward = false;
+	amroutine->amcanunique = false;
+	amroutine->amcanmulticol = false;
+	amroutine->amoptionalkey = false;
+	amroutine->amsearcharray = false;
+	amroutine->amsearchnulls = false;
+	amroutine->amstorage = true;
+	amroutine->amclusterable = false;
+	amroutine->ampredlocks = false;
+	amroutine->amkeytype = InvalidOid;
+
+	amroutine->ambuild = hippobuild;
+	amroutine->ambuildempty = hippobuildempty;
+	amroutine->aminsert = hippoinsert;
+	amroutine->ambulkdelete = hippobulkdelete;
+	amroutine->amvacuumcleanup = hippovacuumcleanup;
+	amroutine->amcanreturn = NULL;
+	amroutine->amcostestimate = hippocostestimate;
+	amroutine->amoptions = hippooptions;
+	amroutine->amproperty = NULL;
+	amroutine->amvalidate = NULL;
+	amroutine->ambeginscan = hippobeginscan;
+	amroutine->amrescan = hipporescan;
+	amroutine->amgettuple = NULL;
+	amroutine->amgetbitmap = hippogetbitmap;
+	amroutine->amendscan = hippoendscan;
+	amroutine->ammarkpos = NULL;
+	amroutine->amrestrpos = NULL;
+
+	PG_RETURN_POINTER(amroutine);
+}
 
 /*
  * Per-data-tuple callback from IndexBuildHeapScan. You'd better not add log here otherwise the log file will have a crazy size.
@@ -106,7 +161,7 @@ hippobuildCallback(Relation index,
 		buildstate->hp_PageNum=thisblock;
 		buildstate->dirtyFlag=false;
 		buildstate->hp_length=0;
-		buildstate->hp_grids[0]=-1;
+//		buildstate->hp_grids[0]=-1;
 		buildstate->originalBitset=bitmap_new();
 	}
 	buildstate->hp_currentPage=thisblock;
@@ -146,154 +201,199 @@ hippobuildCallback(Relation index,
 
 
 }
+
+/*
+ * Initialize a BrinBuildState appropriate to create tuples on the given index.
+ */
+static HippoBuildState *
+initialize_hippo_buildstate(Relation heap, Relation index, Buffer buffer, AttrNumber attrNum, BlockNumber sorted_list_pages, Datum *histogramBounds,int histogramBoundsNum)
+{
+	ereport(LOG,(errmsg("[initialize_hippo_buildstate] start")));
+	HippoBuildState *buildstate;
+
+	buildstate = palloc(sizeof(HippoBuildState));
+
+	buildstate->hp_irel= index;
+	buildstate->attrNum=attrNum;
+	buildstate->hp_PageStart=0;
+	buildstate->hp_PageNum=0;
+	buildstate->dirtyFlag=false;
+	buildstate->hp_currentPage=0;
+	buildstate->hp_length=0;
+	buildstate->hp_numtuples=0;
+	buildstate->hp_indexnumtuples=0;
+	buildstate->hp_scanpage=0;
+	buildstate->hp_currentInsertBuf=buffer;
+	//buildstate->hp_currentInsertPage=page;
+	buildstate->lengthcounter=0;
+	buildstate->histogramBounds=histogramBounds;
+	buildstate->histogramBoundsNum=histogramBoundsNum;
+	buildstate->originalBitset=bitmap_new();
+	buildstate->pageBitmap=bitmap_new();
+	buildstate->differenceThreshold=HippoGetMaxPagesPerRange(index);/* Hippo option: partial histogram density */
+	buildstate->differentTuples=0;
+	buildstate->stopMergeFlag=false;
+	/*
+	 * Initialize sorted list parameters
+	 */
+	buildstate->sorted_list_pages=sorted_list_pages;
+	ereport(LOG,(errmsg("[initialize_hippo_buildstate] stop")));
+	return buildstate;
+}
+/*
+ * Release resources associated with a HippoBuildState.
+ */
+static void
+terminate_hippo_buildstate(HippoBuildState *buildstate)
+{
+	/* release the last index buffer used */
+	if (!BufferIsInvalid(buildstate->hp_currentInsertBuf))
+	{
+		Page		page;
+
+		page = BufferGetPage(buildstate->hp_currentInsertBuf);
+		RecordPageWithFreeSpace(buildstate->hp_irel,
+							BufferGetBlockNumber(buildstate->hp_currentInsertBuf),
+								PageGetFreeSpace(page));
+		ReleaseBuffer(buildstate->hp_currentInsertBuf);
+	}
+	pfree(buildstate);
+
+}
+
+void retrieve_histogram_stat(Relation heap, AttrNumber attrNum, Datum *histogramBounds, int *histogramBoundsNum)
+{
+	ereport(LOG,(errmsg("[retrieve_histogram_stat] start")));
+	/*
+	 * Search PG kernel cache for pg_statistic info
+	 */
+	HeapTuple heapTuple=SearchSysCache2(STATRELATTINH,ObjectIdGetDatum(heap->rd_id),Int16GetDatum(attrNum));
+	if (HeapTupleIsValid(heapTuple))
+	{
+		get_attstatsslot(heapTuple,
+				get_atttype(heap->rd_id, attrNum),get_atttypmod(heap->rd_id,attrNum),
+				STATISTIC_KIND_HISTOGRAM, InvalidOid,
+				NULL,
+				&histogramBounds, histogramBoundsNum,
+				NULL, NULL);
+	}
+	/*
+	 * If didn't release the stattuple, it will be locked.
+	 */
+	ReleaseSysCache(heapTuple);
+	if(histogramBounds==NULL)
+	{
+		elog(ERROR, "[retrieve_histogram_stat] Got histogram NULL");
+	}
+	ereport(LOG,(errmsg("[retrieve_histogram_stat] stop")));
+}
+
+
+Buffer initialize_hippo_space(Relation index, int histogramBoundsNum, int sorted_list_pages)
+{
+	ereport(LOG,(errmsg("[initialize_hippo_space] start")));
+	BlockNumber histogramPages=histogramBoundsNum/HISTOGRAM_PER_PAGE;
+	Buffer buffer;
+	Page page;/* Initial page */
+	Size		pageSize;
+	int i=0;
+	/* Initialize pages for sorted list */
+	for(i=0;i<sorted_list_pages+histogramPages+1;i++)
+	{
+
+		buffer=ReadBuffer(index,P_NEW);
+		LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
+		START_CRIT_SECTION();
+		hippoinit_special(buffer);
+		MarkBufferDirty(buffer);
+		END_CRIT_SECTION();
+		UnlockReleaseBuffer(buffer);
+	}
+
+	/*
+	 *	Init HIPPO.
+	 */
+	buffer = ReadBuffer(index, P_NEW);
+
+	if(buffer==NULL)
+	{
+		elog(ERROR, "[initialize_hippo_space] Initialized buffer NULL");
+	}
+	LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
+	START_CRIT_SECTION();
+	pageSize = BufferGetPageSize(buffer);
+	page = BufferGetPage(buffer);
+	if(page==NULL)
+	{
+		elog(ERROR, "[initialize_hippo_space] Initialized page NULL");
+	}
+	PageInit(page, pageSize, sizeof(BlockNumber)*2+sizeof(GridList));
+	MarkBufferDirty(buffer);
+	END_CRIT_SECTION();
+	LockBuffer(buffer,BUFFER_LOCK_UNLOCK);
+	ereport(LOG,(errmsg("[initialize_hippo_space] stop")));
+	return buffer;
+}
+
 /*
  *This function initializes the entire Hippo. It will call buildcallback many times.
  */
-Datum
-hippobuild(PG_FUNCTION_ARGS)
-{
+IndexBuildResult * hippobuild(Relation heap, Relation index, IndexInfo *indexInfo){
+	ereport(LOG,(errmsg("[hippobuild] start")));
+	IndexBuildResult *result;
+	double	reltuples;
+	HippoBuildState *buildstate;
+	Buffer		buffer;
+	Datum *histogramBounds;
+	int histogramBoundsNum;
+	HeapTuple heapTuple;
+	Page page;/* Initial page */
+	AttrNumber attrNum = indexInfo->ii_KeyAttrNumbers[0]; /* Current Hippo only support single column index */
+	BlockNumber sorted_list_pages=((RelationGetNumberOfBlocks(heap)/((1)*SORTED_LIST_TUPLES_PER_PAGE))+1);
+
+	retrieve_histogram_stat(heap, attrNum, histogramBounds, &histogramBoundsNum);
+
+	buffer = initialize_hippo_space(index, histogramBoundsNum, sorted_list_pages);
+
+	buildstate = initialize_hippo_buildstate(heap, index, buffer, attrNum, sorted_list_pages, histogramBounds, histogramBoundsNum);
+
+	/* build the index */
+	reltuples=IndexBuildHeapScan(heap, index, indexInfo, false, hippobuildCallback, (void *) buildstate);
 	/*
-	 * This is some routine declarations for variables
+	 * Finish the last index tuple.
 	 */
-		Relation	heap = (Relation) PG_GETARG_POINTER(0);
-		Relation	index = (Relation) PG_GETARG_POINTER(1);
-		IndexInfo  *indexInfo = (IndexInfo *) PG_GETARG_POINTER(2);
-		IndexBuildResult *result;
-		double		reltuples;
-		HippoBuildState buildstate;
-		Buffer		buffer;
-		Datum *histogramBounds;
-		int histogramBoundsNum,i;
-		HeapTuple heapTuple;
-		Page page;/* Initial page */
-		Size		pageSize;
-		AttrNumber attrNum;
-		BlockNumber sorted_list_pages=((RelationGetNumberOfBlocks(heap)/((1)*SORTED_LIST_TUPLES_PER_PAGE))+1);
+	if(buildstate->dirtyFlag==true)
+	{
 		/*
-		 * HIPPO Only supports one column as the key
+		 * This is to summarize the last few data pages which are contained by buildstate but haven't got chances to be put on disk.
 		 */
-		attrNum=indexInfo->ii_KeyAttrNumbers[0];
-		/*
-		 * Search PG kernel cache for pg_statistic info
-		 */
-		heapTuple=SearchSysCache2(STATRELATTINH,ObjectIdGetDatum(heap->rd_id),Int16GetDatum(attrNum));
-		if (HeapTupleIsValid(heapTuple))
-		{
+		buildstate->deleteFlag=buildstate->differentTuples;
+		buildstate->hp_PageNum=buildstate->hp_currentPage;
+		hippo_doinsert(buildstate);
+		buildstate->hp_indexnumtuples++;
+	}
 
-			get_attstatsslot(heapTuple,
-					get_atttype(heap->rd_id, attrNum),get_atttypmod(heap->rd_id,attrNum),
-							STATISTIC_KIND_HISTOGRAM, InvalidOid,
-							NULL,
-							&histogramBounds, &histogramBoundsNum,
-							NULL, NULL);
-		}
-		/*
-		 * If didn't release the stattuple, it will be locked.
-		 */
-		ReleaseSysCache(heapTuple);
-		if(histogramBounds==NULL)
-		{
-			elog(LOG, "Got histogram NULL");
-		}
-		BlockNumber histogramPages=histogramBoundsNum/HISTOGRAM_PER_PAGE;
-		/* Initialize pages for sorted list */
-		for(i=0;i<sorted_list_pages+histogramPages+1;i++)
-		{
+	ReleaseBuffer(buildstate->hp_currentInsertBuf);
+	put_histogram(index,0,histogramBoundsNum,histogramBounds);
+	/*
+	 * Stored sorted list
+	 */
+	SortedListInialize(index,buildstate,histogramBoundsNum/HISTOGRAM_PER_PAGE+1);
 
-			buffer=ReadBuffer(index,P_NEW);
-			LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
-			START_CRIT_SECTION();
-			hippoinit_special(buffer);
-			MarkBufferDirty(buffer);
-			END_CRIT_SECTION();
-			UnlockReleaseBuffer(buffer);
-		}
-
-		/*
-		 *	Init HIPPO.
-		 */
-		buffer = ReadBuffer(index, P_NEW);
-
-		if(buffer==NULL)
-		{
-			elog(ERROR, "[hippobuild] Initialized buffer NULL");
-		}
-		LockBuffer(buffer, BUFFER_LOCK_EXCLUSIVE);
-		START_CRIT_SECTION();
-		pageSize = BufferGetPageSize(buffer);
-		page = BufferGetPage(buffer);
-		if(page==NULL)
-		{
-			elog(ERROR, "[hippobuild] Initialized page NULL");
-		}
-		PageInit(page, pageSize, sizeof(BlockNumber)*2+sizeof(GridList));
-		MarkBufferDirty(buffer);
-		END_CRIT_SECTION();
-		LockBuffer(buffer,BUFFER_LOCK_UNLOCK);
-		/*
-		 * Initialize the build state
-		 */
-		buildstate.hp_irel= index;
-		buildstate.attrNum=attrNum;
-		buildstate.hp_PageStart=0;
-		buildstate.hp_PageNum=0;
-		buildstate.dirtyFlag=false;
-		buildstate.hp_currentPage=0;
-		buildstate.hp_length=0;
-		buildstate.hp_numtuples=0;
-		buildstate.hp_indexnumtuples=0;
-		buildstate.hp_scanpage=0;
-		buildstate.hp_currentInsertBuf=buffer;
-		buildstate.hp_currentInsertPage=page;
-		buildstate.lengthcounter=0;
-		buildstate.histogramBounds=histogramBounds;
-		buildstate.histogramBoundsNum=histogramBoundsNum;
-		buildstate.originalBitset=bitmap_new();
-		buildstate.pageBitmap=bitmap_new();
-		buildstate.differenceThreshold=HippoGetMaxPagesPerRange(index);/* Hippo option: partial histogram density */
-		buildstate.differentTuples=0;
-		buildstate.stopMergeFlag=false;
-		/*
-		 * Initialize sorted list parameters
-		 */
-		buildstate.sorted_list_pages=sorted_list_pages;
-		/* build the index */
-		reltuples=IndexBuildHeapScan(heap, index, indexInfo, false, hippobuildCallback, (void *) &buildstate);
-		/*
-		 * Finish the last index tuple.
-		 */
-		if(buildstate.dirtyFlag==true)
-		{
-			/*
-			 * This is to summarize the last few data pages which are contained by buildstate but haven't got chances to be put on disk.
-			 */
-			buildstate.deleteFlag=buildstate.differentTuples;
-			buildstate.hp_PageNum=buildstate.hp_currentPage;
-			hippo_doinsert(&buildstate);
-			buildstate.hp_indexnumtuples++;
-		}
-
-		ReleaseBuffer(buildstate.hp_currentInsertBuf);
-		put_histogram(index,0,histogramBoundsNum,histogramBounds);
-		/*
-		 * Stored sorted list
-		 */
-		SortedListInialize(index,&buildstate,histogramPages+1);
-		/*
-		 * Return statistics
-		 */
-		result = (IndexBuildResult *) palloc(sizeof(IndexBuildResult));
-		result->heap_tuples = buildstate.hp_numtuples;
-		result->index_tuples = buildstate.hp_indexnumtuples;
-		PG_RETURN_POINTER(result);
+	terminate_hippo_buildstate(buildstate);
+	/*
+	 * Return statistics
+	 */
+	result = (IndexBuildResult *) palloc(sizeof(IndexBuildResult));
+	ereport(LOG,(errmsg("[hippobuild] stop")));
+	return result;
 }
 /*
  *	Pre-Build an empty HIPPO index in the initialization phase.
  */
-Datum
-hippobuildempty(PG_FUNCTION_ARGS)
+void
+hippobuildempty(Relation index)
 {
-	Relation	index = (Relation) PG_GETARG_POINTER(0);
 	int i;
 	Buffer		buffer;
 	/* Initialize pages for sorted list */
@@ -321,14 +421,11 @@ hippobuildempty(PG_FUNCTION_ARGS)
  *
  *
  */
-Datum
-hippoinsert(PG_FUNCTION_ARGS)
+bool
+hippoinsert(Relation idxRel, Datum *values, bool *nulls,
+		   ItemPointer heaptid, Relation heapRelation,
+		   IndexUniqueCheck checkUnique)
 {
-	Relation	idxRel = (Relation) PG_GETARG_POINTER(0);
-	Datum	   *values = (Datum *) PG_GETARG_POINTER(1);
-	bool	   *nulls = (bool *) PG_GETARG_POINTER(2);
-	ItemPointer heaptid = (ItemPointer) PG_GETARG_POINTER(3);
-	Relation heapRelation=PG_GETARG_POINTER(4);
 	IndexInfo *indexInfo=BuildIndexInfo(idxRel);
 	struct FormData_pg_index *heapInfo=idxRel->rd_index;
 	/*
@@ -699,14 +796,10 @@ hippoinsert(PG_FUNCTION_ARGS)
  * tuple is deleted), meaning the need to re-run summarization on the affected
  * range.  Would need to add an extra flag in hippotuple for that.
  */
-Datum
-hippobulkdelete(PG_FUNCTION_ARGS)
+IndexBulkDeleteResult *
+hippobulkdelete(IndexVacuumInfo *info, IndexBulkDeleteResult *stats,
+		   IndexBulkDeleteCallback callback, void *callback_state)
 {
-	/* other arguments are not currently used */
-	IndexVacuumInfo *info = (IndexVacuumInfo *) PG_GETARG_POINTER(0);
-	IndexBulkDeleteResult *stats = (IndexBulkDeleteResult *) PG_GETARG_POINTER(1);
-	IndexBulkDeleteCallback callback = (IndexBulkDeleteCallback) PG_GETARG_POINTER(2);
-	void	   *callback_state = (void *) PG_GETARG_POINTER(3);
 	BlockNumber startblock;
 	BlockNumber sorted_list_pages;
 	BlockNumber histogramPages;
@@ -898,33 +991,25 @@ hippobulkdelete(PG_FUNCTION_ARGS)
 /*
  * This routine is in charge of "vacuuming" a HIPPO index. It doessome statistics for PG.
  */
-Datum
-hippovacuumcleanup(PG_FUNCTION_ARGS)
+IndexBulkDeleteResult *
+hippovacuumcleanup(IndexVacuumInfo *info, IndexBulkDeleteResult *stats)
 {
-	/* other arguments are not currently used */
-	IndexVacuumInfo *info = (IndexVacuumInfo *) PG_GETARG_POINTER(0);
-	IndexBulkDeleteResult *stats = (IndexBulkDeleteResult *) PG_GETARG_POINTER(1);
-	PG_RETURN_POINTER(stats);
+	return stats;
 }
-Datum
-hippobeginscan(PG_FUNCTION_ARGS)
+
+IndexScanDesc
+hippobeginscan(Relation r, int nkeys, int norderbys)
 {
-	Relation	r = (Relation) PG_GETARG_POINTER(0);
-	int			nkeys = PG_GETARG_INT32(1);
-	int			norderbys = PG_GETARG_INT32(2);
 	IndexScanDesc scan = RelationGetIndexScan(r, nkeys, norderbys);
-	PG_RETURN_POINTER(scan);
+	return scan;
 }
 
 
 /*
  * This function does index search.
  */
-Datum hippogetbitmap(PG_FUNCTION_ARGS)
+int64 hippogetbitmap(IndexScanDesc scan, TIDBitmap *tbm)
 {
-
-	IndexScanDesc scan = (IndexScanDesc) PG_GETARG_POINTER(0);
-	TIDBitmap  *tbm = (TIDBitmap *) PG_GETARG_POINTER(1);
 	Relation	idxRel = scan->indexRelation;
 	HippoTupleLong hippoTupleLong;
 	Oid			heapOid;
@@ -1122,32 +1207,28 @@ Datum hippogetbitmap(PG_FUNCTION_ARGS)
 	counter++;
 	}
 while(scanstate.scanHasNext==true);
-	PG_RETURN_INT64(totalPages * 10);
+	return (totalPages * 10);
 }
 
 
-Datum
-hippoendscan(PG_FUNCTION_ARGS)
+void
+hippoendscan(IndexScanDesc scan)
 {
-	IndexScanDesc scan = (IndexScanDesc) PG_GETARG_POINTER(0);
-	PG_RETURN_POINTER(scan);
+	elog(LOG, "hippoendscan: unimplemented");
 }
 
 void
 hippo_redo(XLogReaderState *record)
 {
-	elog(PANIC, "hippo_redo: unimplemented");
+	elog(LOG, "hippo_redo: unimplemented");
 }
 /*
  * Re-initialize state for a HIPPO index scan
  */
-Datum
-hipporescan(PG_FUNCTION_ARGS)
+void
+hipporescan(IndexScanDesc scan, ScanKey scankey, int nscankeys,
+		   ScanKey orderbys, int norderbys)
 {
-	IndexScanDesc scan = (IndexScanDesc) PG_GETARG_POINTER(0);
-	ScanKey		scankey = (ScanKey) PG_GETARG_POINTER(1);
-	/* other arguments ignored */
-
 	/*
 	 * Other index AMs preprocess the scan keys at this point, or sometime
 	 * early during the scan; this lets them optimize by removing redundant
@@ -1158,17 +1239,13 @@ hipporescan(PG_FUNCTION_ARGS)
 
 	if (scankey && scan->numberOfKeys > 0){
 		memmove(scan->keyData, scankey,scan->numberOfKeys * sizeof(ScanKeyData));}
-
-	return 0;
 }
 /*
  * reloptions processor for HIPPO indexes
  */
-Datum
-hippooptions(PG_FUNCTION_ARGS)
+bytea *
+hippooptions(Datum reloptions, bool validate)
 {
-	Datum		reloptions = PG_GETARG_DATUM(0);
-	bool		validate = PG_GETARG_BOOL(1);
 	relopt_value *options;
 	HippoOptions *rdopts;
 	int			numoptions;
@@ -1181,7 +1258,7 @@ hippooptions(PG_FUNCTION_ARGS)
 
 	/* if none set, we're done */
 	if (numoptions == 0)
-		PG_RETURN_NULL();
+		return NULL;
 
 	rdopts = allocateReloptStruct(sizeof(HippoOptions), options, numoptions);
 
@@ -1190,6 +1267,6 @@ hippooptions(PG_FUNCTION_ARGS)
 
 	pfree(options);
 
-	PG_RETURN_BYTEA_P(rdopts);
+	return (bytea *) rdopts;
 }
 

@@ -316,6 +316,7 @@ void serializeSortedListTuple(HippoItemPointer *hippoItemPointer,char *diskTuple
  */
 void put_histogram(Relation idxrel, BlockNumber startBlock, int histogramBoundsNum,Datum *histogramBounds)
 {
+	ereport(LOG,(errmsg("[put_histogram] start")));
 	Buffer buffer;
 	Page page;
 	int totalNumber=histogramBoundsNum;
@@ -346,6 +347,7 @@ void put_histogram(Relation idxrel, BlockNumber startBlock, int histogramBoundsN
 	MarkBufferDirty(buffer);
 	END_CRIT_SECTION();
 	UnlockReleaseBuffer(buffer);
+	ereport(LOG,(errmsg("[put_histogram] stop")));
 	}
 
 }

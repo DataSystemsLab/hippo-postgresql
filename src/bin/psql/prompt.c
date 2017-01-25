@@ -1,7 +1,7 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2015, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2016, PostgreSQL Global Development Group
  *
  * src/bin/psql/prompt.c
  */
@@ -166,7 +166,8 @@ get_prompt(promptStatus_t status)
 				case 'p':
 					if (pset.db)
 					{
-						int pid = PQbackendPID(pset.db);
+						int			pid = PQbackendPID(pset.db);
+
 						if (pid)
 							snprintf(buf, sizeof(buf), "%d", pid);
 					}

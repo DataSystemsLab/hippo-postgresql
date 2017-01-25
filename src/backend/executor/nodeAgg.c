@@ -3,7 +3,7 @@
  * nodeAgg.c
  *	  Routines to handle aggregate nodes.
  *
- *	  ExecAgg evaluates each aggregate in the following steps:
+ *	  ExecAgg normally evaluates each aggregate in the following steps:
  *
  *		 transvalue = initcond
  *		 foreach input_tuple do
@@ -13,11 +13,30 @@
  *	  If a finalfunc is not supplied then the result is just the ending
  *	  value of transvalue.
  *
+ *	  Other behaviors can be selected by the "aggsplit" mode, which exists
+ *	  to support partial aggregation.  It is possible to:
+ *	  * Skip running the finalfunc, so that the output is always the
+ *	  final transvalue state.
+ *	  * Substitute the combinefunc for the transfunc, so that transvalue
+ *	  states (propagated up from a child partial-aggregation step) are merged
+ *	  rather than processing raw input rows.  (The statements below about
+ *	  the transfunc apply equally to the combinefunc, when it's selected.)
+ *	  * Apply the serializefunc to the output values (this only makes sense
+ *	  when skipping the finalfunc, since the serializefunc works on the
+ *	  transvalue data type).
+ *	  * Apply the deserializefunc to the input values (this only makes sense
+ *	  when using the combinefunc, for similar reasons).
+ *	  It is the planner's responsibility to connect up Agg nodes using these
+ *	  alternate behaviors in a way that makes sense, with partial aggregation
+ *	  results being fed to nodes that expect them.
+ *
  *	  If a normal aggregate call specifies DISTINCT or ORDER BY, we sort the
  *	  input tuples and eliminate duplicates (if required) before performing
  *	  the above-depicted process.  (However, we don't do that for ordered-set
  *	  aggregates; their "ORDER BY" inputs are ordinary aggregate arguments
- *	  so far as this module is concerned.)
+ *	  so far as this module is concerned.)	Note that partial aggregation
+ *	  is not supported in these cases, since we couldn't ensure global
+ *	  ordering or distinctness of the inputs.
  *
  *	  If transfunc is marked "strict" in pg_proc and initcond is NULL,
  *	  then the first non-NULL input_value is assigned directly to transvalue,
@@ -119,7 +138,7 @@
  *
  *	  TODO: AGG_HASHED doesn't support multiple grouping sets yet.
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -134,6 +153,7 @@
 #include "catalog/objectaccess.h"
 #include "catalog/pg_aggregate.h"
 #include "catalog/pg_proc.h"
+#include "catalog/pg_type.h"
 #include "executor/executor.h"
 #include "executor/nodeAgg.h"
 #include "miscadmin.h"
@@ -197,8 +217,14 @@ typedef struct AggStatePerTransData
 	 */
 	int			numTransInputs;
 
-	/* Oid of the state transition function */
+	/* Oid of the state transition or combine function */
 	Oid			transfn_oid;
+
+	/* Oid of the serialization function or InvalidOid */
+	Oid			serialfn_oid;
+
+	/* Oid of the deserialization function or InvalidOid */
+	Oid			deserialfn_oid;
 
 	/* Oid of state value's datatype */
 	Oid			aggtranstype;
@@ -209,10 +235,16 @@ typedef struct AggStatePerTransData
 	List	   *aggdirectargs;	/* states of direct-argument expressions */
 
 	/*
-	 * fmgr lookup data for transition function.  Note in particular that the
-	 * fn_strict flag is kept here.
+	 * fmgr lookup data for transition function or combine function.  Note in
+	 * particular that the fn_strict flag is kept here.
 	 */
 	FmgrInfo	transfn;
+
+	/* fmgr lookup data for serialization function */
+	FmgrInfo	serialfn;
+
+	/* fmgr lookup data for deserialization function */
+	FmgrInfo	deserialfn;
 
 	/* Input collation derived for aggregate */
 	Oid			aggCollation;
@@ -294,6 +326,11 @@ typedef struct AggStatePerTransData
 	 * worth the extra space consumption.
 	 */
 	FunctionCallInfoData transfn_fcinfo;
+
+	/* Likewise for serialization and deserialization functions */
+	FunctionCallInfoData serialfn_fcinfo;
+
+	FunctionCallInfoData deserialfn_fcinfo;
 }	AggStatePerTransData;
 
 /*
@@ -421,6 +458,10 @@ static void advance_transition_function(AggState *aggstate,
 							AggStatePerTrans pertrans,
 							AggStatePerGroup pergroupstate);
 static void advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup);
+static void advance_combine_function(AggState *aggstate,
+						 AggStatePerTrans pertrans,
+						 AggStatePerGroup pergroupstate);
+static void combine_aggregates(AggState *aggstate, AggStatePerGroup pergroup);
 static void process_ordered_aggregate_single(AggState *aggstate,
 								 AggStatePerTrans pertrans,
 								 AggStatePerGroup pergroupstate);
@@ -431,6 +472,10 @@ static void finalize_aggregate(AggState *aggstate,
 				   AggStatePerAgg peragg,
 				   AggStatePerGroup pergroupstate,
 				   Datum *resultVal, bool *resultIsNull);
+static void finalize_partialaggregate(AggState *aggstate,
+						  AggStatePerAgg peragg,
+						  AggStatePerGroup pergroupstate,
+						  Datum *resultVal, bool *resultIsNull);
 static void prepare_projection_slot(AggState *aggstate,
 						TupleTableSlot *slot,
 						int currentSet);
@@ -451,14 +496,16 @@ static Datum GetAggInitVal(Datum textInitVal, Oid transtype);
 static void build_pertrans_for_aggref(AggStatePerTrans pertrans,
 						  AggState *aggsate, EState *estate,
 						  Aggref *aggref, Oid aggtransfn, Oid aggtranstype,
+						  Oid aggserialfn, Oid aggdeserialfn,
 						  Datum initValue, bool initValueIsNull,
 						  Oid *inputTypes, int numArguments);
 static int find_compatible_peragg(Aggref *newagg, AggState *aggstate,
 					   int lastaggno, List **same_input_transnos);
 static int find_compatible_pertrans(AggState *aggstate, Aggref *newagg,
 						 Oid aggtransfn, Oid aggtranstype,
+						 Oid aggserialfn, Oid aggdeserialfn,
 						 Datum initValue, bool initValueIsNull,
-						 List *possible_matches);
+						 List *transnos);
 
 
 /*
@@ -539,7 +586,8 @@ fetch_input_tuple(AggState *aggstate)
 
 	if (aggstate->sort_in)
 	{
-		if (!tuplesort_gettupleslot(aggstate->sort_in, true, aggstate->sort_slot))
+		if (!tuplesort_gettupleslot(aggstate->sort_in, true, aggstate->sort_slot,
+									NULL))
 			return NULL;
 		slot = aggstate->sort_slot;
 	}
@@ -879,6 +927,169 @@ advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
 	}
 }
 
+/*
+ * combine_aggregates replaces advance_aggregates in DO_AGGSPLIT_COMBINE
+ * mode.  The principal difference is that here we may need to apply the
+ * deserialization function before running the transfn (which, in this mode,
+ * is actually the aggregate's combinefn).  Also, we know we don't need to
+ * handle FILTER, DISTINCT, ORDER BY, or grouping sets.
+ */
+static void
+combine_aggregates(AggState *aggstate, AggStatePerGroup pergroup)
+{
+	int			transno;
+	int			numTrans = aggstate->numtrans;
+
+	/* combine not supported with grouping sets */
+	Assert(aggstate->phase->numsets == 0);
+
+	for (transno = 0; transno < numTrans; transno++)
+	{
+		AggStatePerTrans pertrans = &aggstate->pertrans[transno];
+		AggStatePerGroup pergroupstate = &pergroup[transno];
+		TupleTableSlot *slot;
+		FunctionCallInfo fcinfo = &pertrans->transfn_fcinfo;
+
+		/* Evaluate the current input expressions for this aggregate */
+		slot = ExecProject(pertrans->evalproj, NULL);
+		Assert(slot->tts_nvalid >= 1);
+
+		/*
+		 * deserialfn_oid will be set if we must deserialize the input state
+		 * before calling the combine function
+		 */
+		if (OidIsValid(pertrans->deserialfn_oid))
+		{
+			/* Don't call a strict deserialization function with NULL input */
+			if (pertrans->deserialfn.fn_strict && slot->tts_isnull[0])
+			{
+				fcinfo->arg[1] = slot->tts_values[0];
+				fcinfo->argnull[1] = slot->tts_isnull[0];
+			}
+			else
+			{
+				FunctionCallInfo dsinfo = &pertrans->deserialfn_fcinfo;
+				MemoryContext oldContext;
+
+				dsinfo->arg[0] = slot->tts_values[0];
+				dsinfo->argnull[0] = slot->tts_isnull[0];
+				/* Dummy second argument for type-safety reasons */
+				dsinfo->arg[1] = PointerGetDatum(NULL);
+				dsinfo->argnull[1] = false;
+
+				/*
+				 * We run the deserialization functions in per-input-tuple
+				 * memory context.
+				 */
+				oldContext = MemoryContextSwitchTo(aggstate->tmpcontext->ecxt_per_tuple_memory);
+
+				fcinfo->arg[1] = FunctionCallInvoke(dsinfo);
+				fcinfo->argnull[1] = dsinfo->isnull;
+
+				MemoryContextSwitchTo(oldContext);
+			}
+		}
+		else
+		{
+			fcinfo->arg[1] = slot->tts_values[0];
+			fcinfo->argnull[1] = slot->tts_isnull[0];
+		}
+
+		advance_combine_function(aggstate, pertrans, pergroupstate);
+	}
+}
+
+/*
+ * Perform combination of states between 2 aggregate states. Effectively this
+ * 'adds' two states together by whichever logic is defined in the aggregate
+ * function's combine function.
+ *
+ * Note that in this case transfn is set to the combination function. This
+ * perhaps should be changed to avoid confusion, but one field is ok for now
+ * as they'll never be needed at the same time.
+ */
+static void
+advance_combine_function(AggState *aggstate,
+						 AggStatePerTrans pertrans,
+						 AggStatePerGroup pergroupstate)
+{
+	FunctionCallInfo fcinfo = &pertrans->transfn_fcinfo;
+	MemoryContext oldContext;
+	Datum		newVal;
+
+	if (pertrans->transfn.fn_strict)
+	{
+		/* if we're asked to merge to a NULL state, then do nothing */
+		if (fcinfo->argnull[1])
+			return;
+
+		if (pergroupstate->noTransValue)
+		{
+			/*
+			 * transValue has not yet been initialized.  If pass-by-ref
+			 * datatype we must copy the combining state value into
+			 * aggcontext.
+			 */
+			if (!pertrans->transtypeByVal)
+			{
+				oldContext = MemoryContextSwitchTo(
+												   aggstate->aggcontexts[aggstate->current_set]->ecxt_per_tuple_memory);
+				pergroupstate->transValue = datumCopy(fcinfo->arg[1],
+													pertrans->transtypeByVal,
+													  pertrans->transtypeLen);
+				MemoryContextSwitchTo(oldContext);
+			}
+			else
+				pergroupstate->transValue = fcinfo->arg[1];
+
+			pergroupstate->transValueIsNull = false;
+			pergroupstate->noTransValue = false;
+			return;
+		}
+	}
+
+	/* We run the combine functions in per-input-tuple memory context */
+	oldContext = MemoryContextSwitchTo(aggstate->tmpcontext->ecxt_per_tuple_memory);
+
+	/* set up aggstate->curpertrans for AggGetAggref() */
+	aggstate->curpertrans = pertrans;
+
+	/*
+	 * OK to call the combine function
+	 */
+	fcinfo->arg[0] = pergroupstate->transValue;
+	fcinfo->argnull[0] = pergroupstate->transValueIsNull;
+	fcinfo->isnull = false;		/* just in case combine func doesn't set it */
+
+	newVal = FunctionCallInvoke(fcinfo);
+
+	aggstate->curpertrans = NULL;
+
+	/*
+	 * If pass-by-ref datatype, must copy the new value into aggcontext and
+	 * pfree the prior transValue.  But if the combine function returned a
+	 * pointer to its first input, we don't need to do anything.
+	 */
+	if (!pertrans->transtypeByVal &&
+		DatumGetPointer(newVal) != DatumGetPointer(pergroupstate->transValue))
+	{
+		if (!fcinfo->isnull)
+		{
+			MemoryContextSwitchTo(aggstate->aggcontexts[aggstate->current_set]->ecxt_per_tuple_memory);
+			newVal = datumCopy(newVal,
+							   pertrans->transtypeByVal,
+							   pertrans->transtypeLen);
+		}
+		if (!pergroupstate->transValueIsNull)
+			pfree(DatumGetPointer(pergroupstate->transValue));
+	}
+
+	pergroupstate->transValue = newVal;
+	pergroupstate->transValueIsNull = fcinfo->isnull;
+
+	MemoryContextSwitchTo(oldContext);
+}
+
 
 /*
  * Run the transition function for a DISTINCT or ORDER BY aggregate
@@ -913,6 +1124,8 @@ process_ordered_aggregate_single(AggState *aggstate,
 	MemoryContext workcontext = aggstate->tmpcontext->ecxt_per_tuple_memory;
 	MemoryContext oldContext;
 	bool		isDistinct = (pertrans->numDistinctCols > 0);
+	Datum		newAbbrevVal = (Datum) 0;
+	Datum		oldAbbrevVal = (Datum) 0;
 	FunctionCallInfo fcinfo = &pertrans->transfn_fcinfo;
 	Datum	   *newVal;
 	bool	   *isNull;
@@ -932,7 +1145,7 @@ process_ordered_aggregate_single(AggState *aggstate,
 	 */
 
 	while (tuplesort_getdatum(pertrans->sortstates[aggstate->current_set],
-							  true, newVal, isNull))
+							  true, newVal, isNull, &newAbbrevVal))
 	{
 		/*
 		 * Clear and select the working context for evaluation of the equality
@@ -950,6 +1163,7 @@ process_ordered_aggregate_single(AggState *aggstate,
 			haveOldVal &&
 			((oldIsNull && *isNull) ||
 			 (!oldIsNull && !*isNull &&
+			  oldAbbrevVal == newAbbrevVal &&
 			  DatumGetBool(FunctionCall2(&pertrans->equalfns[0],
 										 oldVal, *newVal)))))
 		{
@@ -965,6 +1179,7 @@ process_ordered_aggregate_single(AggState *aggstate,
 				pfree(DatumGetPointer(oldVal));
 			/* and remember the new one for subsequent equality checks */
 			oldVal = *newVal;
+			oldAbbrevVal = newAbbrevVal;
 			oldIsNull = *isNull;
 			haveOldVal = true;
 		}
@@ -1002,6 +1217,8 @@ process_ordered_aggregate_multi(AggState *aggstate,
 	TupleTableSlot *slot2 = pertrans->uniqslot;
 	int			numTransInputs = pertrans->numTransInputs;
 	int			numDistinctCols = pertrans->numDistinctCols;
+	Datum		newAbbrevVal = (Datum) 0;
+	Datum		oldAbbrevVal = (Datum) 0;
 	bool		haveOldValue = false;
 	int			i;
 
@@ -1012,7 +1229,7 @@ process_ordered_aggregate_multi(AggState *aggstate,
 		ExecClearTuple(slot2);
 
 	while (tuplesort_gettupleslot(pertrans->sortstates[aggstate->current_set],
-								  true, slot1))
+								  true, slot1, &newAbbrevVal))
 	{
 		/*
 		 * Extract the first numTransInputs columns as datums to pass to the
@@ -1023,6 +1240,7 @@ process_ordered_aggregate_multi(AggState *aggstate,
 
 		if (numDistinctCols == 0 ||
 			!haveOldValue ||
+			newAbbrevVal != oldAbbrevVal ||
 			!execTuplesMatch(slot1, slot2,
 							 numDistinctCols,
 							 pertrans->sortColIdx,
@@ -1046,6 +1264,8 @@ process_ordered_aggregate_multi(AggState *aggstate,
 
 				slot2 = slot1;
 				slot1 = tmpslot;
+				/* avoid execTuplesMatch() calls by reusing abbreviated keys */
+				oldAbbrevVal = newAbbrevVal;
 				haveOldValue = true;
 			}
 		}
@@ -1171,6 +1391,62 @@ finalize_aggregate(AggState *aggstate,
 	MemoryContextSwitchTo(oldContext);
 }
 
+/*
+ * Compute the output value of one partial aggregate.
+ *
+ * The serialization function will be run, and the result delivered, in the
+ * output-tuple context; caller's CurrentMemoryContext does not matter.
+ */
+static void
+finalize_partialaggregate(AggState *aggstate,
+						  AggStatePerAgg peragg,
+						  AggStatePerGroup pergroupstate,
+						  Datum *resultVal, bool *resultIsNull)
+{
+	AggStatePerTrans pertrans = &aggstate->pertrans[peragg->transno];
+	MemoryContext oldContext;
+
+	oldContext = MemoryContextSwitchTo(aggstate->ss.ps.ps_ExprContext->ecxt_per_tuple_memory);
+
+	/*
+	 * serialfn_oid will be set if we must serialize the transvalue before
+	 * returning it
+	 */
+	if (OidIsValid(pertrans->serialfn_oid))
+	{
+		/* Don't call a strict serialization function with NULL input. */
+		if (pertrans->serialfn.fn_strict && pergroupstate->transValueIsNull)
+		{
+			*resultVal = (Datum) 0;
+			*resultIsNull = true;
+		}
+		else
+		{
+			FunctionCallInfo fcinfo = &pertrans->serialfn_fcinfo;
+
+			fcinfo->arg[0] = pergroupstate->transValue;
+			fcinfo->argnull[0] = pergroupstate->transValueIsNull;
+
+			*resultVal = FunctionCallInvoke(fcinfo);
+			*resultIsNull = fcinfo->isnull;
+		}
+	}
+	else
+	{
+		*resultVal = pergroupstate->transValue;
+		*resultIsNull = pergroupstate->transValueIsNull;
+	}
+
+	/* If result is pass-by-ref, make sure it is in the right context. */
+	if (!peragg->resulttypeByVal && !*resultIsNull &&
+		!MemoryContextContains(CurrentMemoryContext,
+							   DatumGetPointer(*resultVal)))
+		*resultVal = datumCopy(*resultVal,
+							   peragg->resulttypeByVal,
+							   peragg->resulttypeLen);
+
+	MemoryContextSwitchTo(oldContext);
+}
 
 /*
  * Prepare to finalize and project based on the specified representative tuple
@@ -1278,8 +1554,12 @@ finalize_aggregates(AggState *aggstate,
 												pergroupstate);
 		}
 
-		finalize_aggregate(aggstate, peragg, pergroupstate,
-						   &aggvalues[aggno], &aggnulls[aggno]);
+		if (DO_AGGSPLIT_SKIPFINAL(aggstate->aggsplit))
+			finalize_partialaggregate(aggstate, peragg, pergroupstate,
+									  &aggvalues[aggno], &aggnulls[aggno]);
+		else
+			finalize_aggregate(aggstate, peragg, pergroupstate,
+							   &aggvalues[aggno], &aggnulls[aggno]);
 	}
 }
 
@@ -1811,7 +2091,10 @@ agg_retrieve_direct(AggState *aggstate)
 				 */
 				for (;;)
 				{
-					advance_aggregates(aggstate, pergroup);
+					if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit))
+						combine_aggregates(aggstate, pergroup);
+					else
+						advance_aggregates(aggstate, pergroup);
 
 					/* Reset per-input-tuple context after each tuple */
 					ResetExprContext(tmpcontext);
@@ -1919,7 +2202,10 @@ agg_fill_hash_table(AggState *aggstate)
 		entry = lookup_hash_entry(aggstate, outerslot);
 
 		/* Advance the aggregates */
-		advance_aggregates(aggstate, entry->pergroup);
+		if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit))
+			combine_aggregates(aggstate, entry->pergroup);
+		else
+			advance_aggregates(aggstate, entry->pergroup);
 
 		/* Reset per-input-tuple context after each tuple */
 		ResetExprContext(tmpcontext);
@@ -2043,6 +2329,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	aggstate->aggs = NIL;
 	aggstate->numaggs = 0;
 	aggstate->numtrans = 0;
+	aggstate->aggsplit = node->aggsplit;
 	aggstate->maxsets = 0;
 	aggstate->hashfunctions = NULL;
 	aggstate->projected_set = -1;
@@ -2050,8 +2337,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	aggstate->peragg = NULL;
 	aggstate->pertrans = NULL;
 	aggstate->curpertrans = NULL;
-	aggstate->agg_done = false;
 	aggstate->input_done = false;
+	aggstate->agg_done = false;
 	aggstate->pergroup = NULL;
 	aggstate->grp_firstTuple = NULL;
 	aggstate->hashtable = NULL;
@@ -2319,21 +2606,21 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	 *
 	 * 1. An aggregate function appears more than once in query:
 	 *
-	 *    SELECT SUM(x) FROM ... HAVING SUM(x) > 0
+	 *	  SELECT SUM(x) FROM ... HAVING SUM(x) > 0
 	 *
-	 *    Since the aggregates are the identical, we only need to calculate
-	 *    the calculate it once. Both aggregates will share the same 'aggno'
-	 *    value.
+	 *	  Since the aggregates are the identical, we only need to calculate
+	 *	  the calculate it once. Both aggregates will share the same 'aggno'
+	 *	  value.
 	 *
 	 * 2. Two different aggregate functions appear in the query, but the
-	 *    aggregates have the same transition function and initial value, but
-	 *    different final function:
+	 *	  aggregates have the same transition function and initial value, but
+	 *	  different final function:
 	 *
-	 *    SELECT SUM(x), AVG(x) FROM ...
+	 *	  SELECT SUM(x), AVG(x) FROM ...
 	 *
-	 *    In this case we must create a new peragg for the varying aggregate,
-	 *    and need to call the final functions separately, but can share the
-	 *    same transition state.
+	 *	  In this case we must create a new peragg for the varying aggregate,
+	 *	  and need to call the final functions separately, but can share the
+	 *	  same transition state.
 	 *
 	 * For either of these optimizations to be valid, the aggregate's
 	 * arguments must be the same, including any modifiers such as ORDER BY,
@@ -2359,6 +2646,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		AclResult	aclresult;
 		Oid			transfn_oid,
 					finalfn_oid;
+		Oid			serialfn_oid,
+					deserialfn_oid;
 		Expr	   *finalfnexpr;
 		Oid			aggtranstype;
 		Datum		textInitVal;
@@ -2367,6 +2656,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 
 		/* Planner should have assigned aggregate to correct level */
 		Assert(aggref->agglevelsup == 0);
+		/* ... and the split mode should match */
+		Assert(aggref->aggsplit == aggstate->aggsplit);
 
 		/* 1. Check for already processed aggs which can be re-used */
 		existing_aggno = find_compatible_peragg(aggref, aggstate, aggno,
@@ -2402,8 +2693,66 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 						   get_func_name(aggref->aggfnoid));
 		InvokeFunctionExecuteHook(aggref->aggfnoid);
 
-		transfn_oid = aggform->aggtransfn;
-		peragg->finalfn_oid = finalfn_oid = aggform->aggfinalfn;
+		/* planner recorded transition state type in the Aggref itself */
+		aggtranstype = aggref->aggtranstype;
+		Assert(OidIsValid(aggtranstype));
+
+		/*
+		 * If this aggregation is performing state combines, then instead of
+		 * using the transition function, we'll use the combine function
+		 */
+		if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit))
+		{
+			transfn_oid = aggform->aggcombinefn;
+
+			/* If not set then the planner messed up */
+			if (!OidIsValid(transfn_oid))
+				elog(ERROR, "combinefn not set for aggregate function");
+		}
+		else
+			transfn_oid = aggform->aggtransfn;
+
+		/* Final function only required if we're finalizing the aggregates */
+		if (DO_AGGSPLIT_SKIPFINAL(aggstate->aggsplit))
+			peragg->finalfn_oid = finalfn_oid = InvalidOid;
+		else
+			peragg->finalfn_oid = finalfn_oid = aggform->aggfinalfn;
+
+		serialfn_oid = InvalidOid;
+		deserialfn_oid = InvalidOid;
+
+		/*
+		 * Check if serialization/deserialization is required.  We only do it
+		 * for aggregates that have transtype INTERNAL.
+		 */
+		if (aggtranstype == INTERNALOID)
+		{
+			/*
+			 * The planner should only have generated a serialize agg node if
+			 * every aggregate with an INTERNAL state has a serialization
+			 * function.  Verify that.
+			 */
+			if (DO_AGGSPLIT_SERIALIZE(aggstate->aggsplit))
+			{
+				/* serialization only valid when not running finalfn */
+				Assert(DO_AGGSPLIT_SKIPFINAL(aggstate->aggsplit));
+
+				if (!OidIsValid(aggform->aggserialfn))
+					elog(ERROR, "serialfunc not provided for serialization aggregation");
+				serialfn_oid = aggform->aggserialfn;
+			}
+
+			/* Likewise for deserialization functions */
+			if (DO_AGGSPLIT_DESERIALIZE(aggstate->aggsplit))
+			{
+				/* deserialization only valid when combining states */
+				Assert(DO_AGGSPLIT_COMBINE(aggstate->aggsplit));
+
+				if (!OidIsValid(aggform->aggdeserialfn))
+					elog(ERROR, "deserialfunc not provided for deserialization aggregation");
+				deserialfn_oid = aggform->aggdeserialfn;
+			}
+		}
 
 		/* Check that aggregate owner has permission to call component fns */
 		{
@@ -2433,6 +2782,24 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 								   get_func_name(finalfn_oid));
 				InvokeFunctionExecuteHook(finalfn_oid);
 			}
+			if (OidIsValid(serialfn_oid))
+			{
+				aclresult = pg_proc_aclcheck(serialfn_oid, aggOwner,
+											 ACL_EXECUTE);
+				if (aclresult != ACLCHECK_OK)
+					aclcheck_error(aclresult, ACL_KIND_PROC,
+								   get_func_name(serialfn_oid));
+				InvokeFunctionExecuteHook(serialfn_oid);
+			}
+			if (OidIsValid(deserialfn_oid))
+			{
+				aclresult = pg_proc_aclcheck(deserialfn_oid, aggOwner,
+											 ACL_EXECUTE);
+				if (aclresult != ACLCHECK_OK)
+					aclcheck_error(aclresult, ACL_KIND_PROC,
+								   get_func_name(deserialfn_oid));
+				InvokeFunctionExecuteHook(deserialfn_oid);
+			}
 		}
 
 		/*
@@ -2445,12 +2812,6 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		/* Count the "direct" arguments, if any */
 		numDirectArgs = list_length(aggref->aggdirectargs);
 
-		/* resolve actual type of transition state, if polymorphic */
-		aggtranstype = resolve_aggregate_transtype(aggref->aggfnoid,
-												   aggform->aggtranstype,
-												   inputTypes,
-												   numArguments);
-
 		/* Detect how many arguments to pass to the finalfn */
 		if (aggform->aggfinalextra)
 			peragg->numFinalArgs = numArguments + 1;
@@ -2459,7 +2820,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 
 		/*
 		 * build expression trees using actual argument & result types for the
-		 * finalfn, if it exists
+		 * finalfn, if it exists and is required.
 		 */
 		if (OidIsValid(finalfn_oid))
 		{
@@ -2474,7 +2835,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			fmgr_info_set_expr((Node *) finalfnexpr, &peragg->finalfn);
 		}
 
-		/* get info about the result type's datatype */
+		/* get info about the output value's datatype */
 		get_typlenbyval(aggref->aggtype,
 						&peragg->resulttypeLen,
 						&peragg->resulttypeByVal);
@@ -2501,6 +2862,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		 */
 		existing_transno = find_compatible_pertrans(aggstate, aggref,
 													transfn_oid, aggtranstype,
+												serialfn_oid, deserialfn_oid,
 												  initValue, initValueIsNull,
 													same_input_transnos);
 		if (existing_transno != -1)
@@ -2517,6 +2879,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			pertrans = &pertransstates[++transno];
 			build_pertrans_for_aggref(pertrans, aggstate, estate,
 									  aggref, transfn_oid, aggtranstype,
+									  serialfn_oid, deserialfn_oid,
 									  initValue, initValueIsNull,
 									  inputTypes, numArguments);
 			peragg->transno = transno;
@@ -2547,11 +2910,13 @@ build_pertrans_for_aggref(AggStatePerTrans pertrans,
 						  AggState *aggstate, EState *estate,
 						  Aggref *aggref,
 						  Oid aggtransfn, Oid aggtranstype,
+						  Oid aggserialfn, Oid aggdeserialfn,
 						  Datum initValue, bool initValueIsNull,
 						  Oid *inputTypes, int numArguments)
 {
 	int			numGroupingSets = Max(aggstate->maxsets, 1);
-	Expr	   *transfnexpr;
+	Expr	   *serialfnexpr = NULL;
+	Expr	   *deserialfnexpr = NULL;
 	ListCell   *lc;
 	int			numInputs;
 	int			numDirectArgs;
@@ -2565,6 +2930,8 @@ build_pertrans_for_aggref(AggStatePerTrans pertrans,
 	pertrans->aggref = aggref;
 	pertrans->aggCollation = aggref->inputcollid;
 	pertrans->transfn_oid = aggtransfn;
+	pertrans->serialfn_oid = aggserialfn;
+	pertrans->deserialfn_oid = aggdeserialfn;
 	pertrans->initValue = initValue;
 	pertrans->initValueIsNull = initValueIsNull;
 
@@ -2583,50 +2950,119 @@ build_pertrans_for_aggref(AggStatePerTrans pertrans,
 		pertrans->numTransInputs = numArguments;
 
 	/*
-	 * Set up infrastructure for calling the transfn
+	 * When combining states, we have no use at all for the aggregate
+	 * function's transfn. Instead we use the combinefn.  In this case, the
+	 * transfn and transfn_oid fields of pertrans refer to the combine
+	 * function rather than the transition function.
 	 */
-	build_aggregate_transfn_expr(inputTypes,
-								 numArguments,
-								 numDirectArgs,
-								 aggref->aggvariadic,
-								 aggtranstype,
-								 aggref->inputcollid,
-								 aggtransfn,
-								 InvalidOid,	/* invtrans is not needed here */
-								 &transfnexpr,
-								 NULL);
-	fmgr_info(aggtransfn, &pertrans->transfn);
-	fmgr_info_set_expr((Node *) transfnexpr, &pertrans->transfn);
-
-	InitFunctionCallInfoData(pertrans->transfn_fcinfo,
-							 &pertrans->transfn,
-							 pertrans->numTransInputs + 1,
-							 pertrans->aggCollation,
-							 (void *) aggstate, NULL);
-
-	/*
-	 * If the transfn is strict and the initval is NULL, make sure input type
-	 * and transtype are the same (or at least binary-compatible), so that
-	 * it's OK to use the first aggregated input value as the initial
-	 * transValue.  This should have been checked at agg definition time, but
-	 * we must check again in case the transfn's strictness property has been
-	 * changed.
-	 */
-	if (pertrans->transfn.fn_strict && pertrans->initValueIsNull)
+	if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit))
 	{
-		if (numArguments <= numDirectArgs ||
-			!IsBinaryCoercible(inputTypes[numDirectArgs],
-							   aggtranstype))
+		Expr	   *combinefnexpr;
+
+		build_aggregate_combinefn_expr(aggtranstype,
+									   aggref->inputcollid,
+									   aggtransfn,
+									   &combinefnexpr);
+		fmgr_info(aggtransfn, &pertrans->transfn);
+		fmgr_info_set_expr((Node *) combinefnexpr, &pertrans->transfn);
+
+		InitFunctionCallInfoData(pertrans->transfn_fcinfo,
+								 &pertrans->transfn,
+								 2,
+								 pertrans->aggCollation,
+								 (void *) aggstate, NULL);
+
+		/*
+		 * Ensure that a combine function to combine INTERNAL states is not
+		 * strict. This should have been checked during CREATE AGGREGATE, but
+		 * the strict property could have been changed since then.
+		 */
+		if (pertrans->transfn.fn_strict && aggtranstype == INTERNALOID)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-					 errmsg("aggregate %u needs to have compatible input type and transition type",
+					 errmsg("combine function for aggregate %u must be declared as STRICT",
 							aggref->aggfnoid)));
+	}
+	else
+	{
+		Expr	   *transfnexpr;
+
+		/*
+		 * Set up infrastructure for calling the transfn.  Note that invtrans
+		 * is not needed here.
+		 */
+		build_aggregate_transfn_expr(inputTypes,
+									 numArguments,
+									 numDirectArgs,
+									 aggref->aggvariadic,
+									 aggtranstype,
+									 aggref->inputcollid,
+									 aggtransfn,
+									 InvalidOid,
+									 &transfnexpr,
+									 NULL);
+		fmgr_info(aggtransfn, &pertrans->transfn);
+		fmgr_info_set_expr((Node *) transfnexpr, &pertrans->transfn);
+
+		InitFunctionCallInfoData(pertrans->transfn_fcinfo,
+								 &pertrans->transfn,
+								 pertrans->numTransInputs + 1,
+								 pertrans->aggCollation,
+								 (void *) aggstate, NULL);
+
+		/*
+		 * If the transfn is strict and the initval is NULL, make sure input
+		 * type and transtype are the same (or at least binary-compatible), so
+		 * that it's OK to use the first aggregated input value as the initial
+		 * transValue.  This should have been checked at agg definition time,
+		 * but we must check again in case the transfn's strictness property
+		 * has been changed.
+		 */
+		if (pertrans->transfn.fn_strict && pertrans->initValueIsNull)
+		{
+			if (numArguments <= numDirectArgs ||
+				!IsBinaryCoercible(inputTypes[numDirectArgs],
+								   aggtranstype))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+						 errmsg("aggregate %u needs to have compatible input type and transition type",
+								aggref->aggfnoid)));
+		}
 	}
 
 	/* get info about the state value's datatype */
 	get_typlenbyval(aggtranstype,
 					&pertrans->transtypeLen,
 					&pertrans->transtypeByVal);
+
+	if (OidIsValid(aggserialfn))
+	{
+		build_aggregate_serialfn_expr(aggserialfn,
+									  &serialfnexpr);
+		fmgr_info(aggserialfn, &pertrans->serialfn);
+		fmgr_info_set_expr((Node *) serialfnexpr, &pertrans->serialfn);
+
+		InitFunctionCallInfoData(pertrans->serialfn_fcinfo,
+								 &pertrans->serialfn,
+								 1,
+								 InvalidOid,
+								 (void *) aggstate, NULL);
+	}
+
+	if (OidIsValid(aggdeserialfn))
+	{
+		build_aggregate_deserialfn_expr(aggdeserialfn,
+										&deserialfnexpr);
+		fmgr_info(aggdeserialfn, &pertrans->deserialfn);
+		fmgr_info_set_expr((Node *) deserialfnexpr, &pertrans->deserialfn);
+
+		InitFunctionCallInfoData(pertrans->deserialfn_fcinfo,
+								 &pertrans->deserialfn,
+								 2,
+								 InvalidOid,
+								 (void *) aggstate, NULL);
+
+	}
 
 	/*
 	 * Get a tupledesc corresponding to the aggregated inputs (including sort
@@ -2832,6 +3268,7 @@ find_compatible_peragg(Aggref *newagg, AggState *aggstate,
 
 		/* all of the following must be the same or it's no match */
 		if (newagg->inputcollid != existingRef->inputcollid ||
+			newagg->aggtranstype != existingRef->aggtranstype ||
 			newagg->aggstar != existingRef->aggstar ||
 			newagg->aggvariadic != existingRef->aggvariadic ||
 			newagg->aggkind != existingRef->aggkind ||
@@ -2874,6 +3311,7 @@ find_compatible_peragg(Aggref *newagg, AggState *aggstate,
 static int
 find_compatible_pertrans(AggState *aggstate, Aggref *newagg,
 						 Oid aggtransfn, Oid aggtranstype,
+						 Oid aggserialfn, Oid aggdeserialfn,
 						 Datum initValue, bool initValueIsNull,
 						 List *transnos)
 {
@@ -2890,6 +3328,17 @@ find_compatible_pertrans(AggState *aggstate, Aggref *newagg,
 		 */
 		if (aggtransfn != pertrans->transfn_oid ||
 			aggtranstype != pertrans->aggtranstype)
+			continue;
+
+		/*
+		 * The serialization and deserialization functions must match, if
+		 * present, as we're unable to share the trans state for aggregates
+		 * which will serialize or deserialize into different formats.
+		 * Remember that these will be InvalidOid if they're not required for
+		 * this agg node.
+		 */
+		if (aggserialfn != pertrans->serialfn_oid ||
+			aggdeserialfn != pertrans->deserialfn_oid)
 			continue;
 
 		/* Check that the initial condition matches, too. */
@@ -2976,11 +3425,13 @@ ExecReScanAgg(AggState *node)
 			return;
 
 		/*
-		 * If we do have the hash table and the subplan does not have any
-		 * parameter changes, then we can just rescan the existing hash table;
-		 * no need to build it again.
+		 * If we do have the hash table, and the subplan does not have any
+		 * parameter changes, and none of our own parameter changes affect
+		 * input expressions of the aggregated functions, then we can just
+		 * rescan the existing hash table; no need to build it again.
 		 */
-		if (outerPlan->chgParam == NULL)
+		if (outerPlan->chgParam == NULL &&
+			!bms_overlap(node->ss.ps.chgParam, aggnode->aggParams))
 		{
 			ResetTupleHashIterator(node->hashtable, &node->hashiter);
 			return;
