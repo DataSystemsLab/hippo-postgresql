@@ -5,7 +5,7 @@
  *	  wherein you authenticate a user by seeing what IP address the system
  *	  says he comes from and choosing authentication method based on it).
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -387,10 +387,8 @@ tokenize_file(const char *filename, FILE *file,
 	MemoryContext oldcxt;
 
 	linecxt = AllocSetContextCreate(CurrentMemoryContext,
-									"tokenize file cxt",
-									ALLOCSET_DEFAULT_MINSIZE,
-									ALLOCSET_DEFAULT_INITSIZE,
-									ALLOCSET_DEFAULT_MAXSIZE);
+									"tokenize_file",
+									ALLOCSET_SMALL_SIZES);
 	oldcxt = MemoryContextSwitchTo(linecxt);
 
 	*lines = *line_nums = NIL;
@@ -1190,6 +1188,12 @@ parse_hba_line(List *line, int line_num, char *raw_line)
 #else
 		unsupauth = "pam";
 #endif
+	else if (strcmp(token->string, "bsd") == 0)
+#ifdef USE_BSD_AUTH
+		parsedline->auth_method = uaBSD;
+#else
+		unsupauth = "bsd";
+#endif
 	else if (strcmp(token->string, "ldap") == 0)
 #ifdef USE_LDAP
 		parsedline->auth_method = uaLDAP;
@@ -1272,6 +1276,30 @@ parse_hba_line(List *line, int line_num, char *raw_line)
 				 errcontext("line %d of configuration file \"%s\"",
 							line_num, HbaFileName)));
 		return NULL;
+	}
+
+	/*
+	 * For GSS and SSPI, set the default value of include_realm to true.
+	 * Having include_realm set to false is dangerous in multi-realm
+	 * situations and is generally considered bad practice.  We keep the
+	 * capability around for backwards compatibility, but we might want to
+	 * remove it at some point in the future.  Users who still need to strip
+	 * the realm off would be better served by using an appropriate regex in a
+	 * pg_ident.conf mapping.
+	 */
+	if (parsedline->auth_method == uaGSS ||
+		parsedline->auth_method == uaSSPI)
+		parsedline->include_realm = true;
+
+	/*
+	 * For SSPI, include_realm defaults to the SAM-compatible domain (aka
+	 * NetBIOS name) and user names instead of the Kerberos principal name for
+	 * compatibility.
+	 */
+	if (parsedline->auth_method == uaSSPI)
+	{
+		parsedline->compat_realm = true;
+		parsedline->upn_username = false;
 	}
 
 	/* Parse remaining arguments */
@@ -1376,19 +1404,6 @@ parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline, int line_num)
 	hbaline->ldapscope = LDAP_SCOPE_SUBTREE;
 #endif
 
-	/*
-	 * For GSS and SSPI, set the default value of include_realm to true.
-	 * Having include_realm set to false is dangerous in multi-realm
-	 * situations and is generally considered bad practice.  We keep the
-	 * capability around for backwards compatibility, but we might want to
-	 * remove it at some point in the future.  Users who still need to strip
-	 * the realm off would be better served by using an appropriate regex in a
-	 * pg_ident.conf mapping.
-	 */
-	if (hbaline->auth_method == uaGSS ||
-		hbaline->auth_method == uaSSPI)
-		hbaline->include_realm = true;
-
 	if (strcmp(name, "map") == 0)
 	{
 		if (hbaline->auth_method != uaIdent &&
@@ -1446,6 +1461,15 @@ parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline, int line_num)
 	{
 		REQUIRE_AUTH_OPTION(uaPAM, "pamservice", "pam");
 		hbaline->pamservice = pstrdup(val);
+	}
+	else if (strcmp(name, "pam_use_hostname") == 0)
+	{
+		REQUIRE_AUTH_OPTION(uaPAM, "pam_use_hostname", "pam");
+		if (strcmp(val, "1") == 0)
+			hbaline->pam_use_hostname = true;
+		else
+			hbaline->pam_use_hostname = false;
+
 	}
 	else if (strcmp(name, "ldapurl") == 0)
 	{
@@ -1569,6 +1593,24 @@ parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline, int line_num)
 			hbaline->include_realm = true;
 		else
 			hbaline->include_realm = false;
+	}
+	else if (strcmp(name, "compat_realm") == 0)
+	{
+		if (hbaline->auth_method != uaSSPI)
+			INVALID_AUTH_OPTION("compat_realm", gettext_noop("sspi"));
+		if (strcmp(val, "1") == 0)
+			hbaline->compat_realm = true;
+		else
+			hbaline->compat_realm = false;
+	}
+	else if (strcmp(name, "upn_username") == 0)
+	{
+		if (hbaline->auth_method != uaSSPI)
+			INVALID_AUTH_OPTION("upn_username", gettext_noop("sspi"));
+		if (strcmp(val, "1") == 0)
+			hbaline->upn_username = true;
+		else
+			hbaline->upn_username = false;
 	}
 	else if (strcmp(name, "radiusserver") == 0)
 	{
@@ -1773,9 +1815,7 @@ load_hba(void)
 	Assert(PostmasterContext);
 	hbacxt = AllocSetContextCreate(PostmasterContext,
 								   "hba parser context",
-								   ALLOCSET_DEFAULT_MINSIZE,
-								   ALLOCSET_DEFAULT_MINSIZE,
-								   ALLOCSET_DEFAULT_MAXSIZE);
+								   ALLOCSET_SMALL_SIZES);
 	oldcxt = MemoryContextSwitchTo(hbacxt);
 	forthree(line, hba_lines, line_num, hba_line_nums, raw_line, hba_raw_lines)
 	{
@@ -2151,9 +2191,7 @@ load_ident(void)
 	Assert(PostmasterContext);
 	ident_context = AllocSetContextCreate(PostmasterContext,
 										  "ident parser context",
-										  ALLOCSET_DEFAULT_MINSIZE,
-										  ALLOCSET_DEFAULT_MINSIZE,
-										  ALLOCSET_DEFAULT_MAXSIZE);
+										  ALLOCSET_SMALL_SIZES);
 	oldcxt = MemoryContextSwitchTo(ident_context);
 	forboth(line_cell, ident_lines, num_cell, ident_line_nums)
 	{

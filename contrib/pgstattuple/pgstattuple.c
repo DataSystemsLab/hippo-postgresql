@@ -29,6 +29,7 @@
 #include "access/nbtree.h"
 #include "access/relscan.h"
 #include "catalog/namespace.h"
+#include "catalog/pg_am.h"
 #include "funcapi.h"
 #include "miscadmin.h"
 #include "storage/bufmgr.h"
@@ -235,9 +236,6 @@ pgstat_relation(Relation rel, FunctionCallInfo fcinfo)
 					break;
 				case BRIN_AM_OID:
 					err = "brin index";
-					break;
-				case GSIN_AM_OID:
-					err = "gsin index";
 					break;
 				default:
 					err = "unknown index";

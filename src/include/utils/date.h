@@ -4,7 +4,7 @@
  *	  Definitions for the SQL "date" and "time" types.
  *
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/utils/date.h
@@ -90,6 +90,7 @@ typedef struct
 
 /* date.c */
 extern double date2timestamp_no_overflow(DateADT dateVal);
+extern void EncodeSpecialDate(DateADT dt, char *str);
 
 extern Datum date_in(PG_FUNCTION_ARGS);
 extern Datum date_out(PG_FUNCTION_ARGS);

@@ -4,6 +4,8 @@
 
 [![Build Status](https://travis-ci.org/jiayuasu/hippo-postgresql.svg?branch=master)](https://travis-ci.org/jiayuasu/hippo-postgresql)
 
+``PostgreSQL version: 9.6.1``
+
 Hippo is a fast, yet scalable, sparse database indexing approach. In contrast to existing tree index structures, Hippo avoids storing a pointer to each tuple in the indexed table to reduce the storage space occupied by the index. Hippo only stores disk page ranges that represent the indexed database table and maintains histogram-based summaries for the page ranges. The summaries are brief histograms which represent the data distribution of one or more pages. The main contributions of Hippo are as follows:
 
 <img src="http://faculty.engineering.asu.edu/sarwat/wp-content/uploads/2016/04/hippo-logo-2.png" width="250" align="right" >
@@ -18,7 +20,8 @@ Hippo is a fast, yet scalable, sparse database indexing approach. In contrast to
 
 #Play around with Hippo index
 
-For the ease of testing, we have implemented Hippo index into PostgreSQL kernel (9.5 Alpha 2) as one of the backend access methods. This verision has been tested on Ubuntu Linux LTS 14.04.
+For the ease of testing, we have implemented Hippo index into PostgreSQL kernel as one of the backend access methods. This verision has been tested on Ubuntu Linux LTS 14.04.
+
 
 ## Download the source code
 ```
@@ -26,6 +29,7 @@ $ git clone https://github.com/Sarwat/hippo-postgresql.git
 ```
 ## Build and Installation
 Once you've synced with GitHub, the folder should contain the source code for PostgreSQL. The build and installation steps are exactly same with official PostgreSQL.
+
 ```
 $ cd SourceFolder
 $ ./configure
@@ -53,7 +57,8 @@ $ sudo apt-get install build-essential libreadline-dev zlib1g-dev flex bison lib
 
 ## PostgreSQL Regression Test
 
-After the installation, you have to make sure the source code on your machine pass all the PostgreSQL Regression Tests (157 in total).
+After the installation, you have to make sure the source code on your machine pass all the PostgreSQL Regression Tests (168 in total).
+
 ```
 $ cd SourceFolder
 
@@ -117,9 +122,7 @@ Integer
 
 ## Notes
 
-Currently, due to the conflicts between Hippo index and PostgreSQL kernel, Hippo only works on the temporary postmaster server which is built in PostgreSQL Regression Test Mode. We are still striving to release it in PostgreSQL Production Mode.
-
-For using Hippo in PostgreSQL Regression Test Mode, you need to
+Please read Hippo index test SQL script for some examples.
 
 * Read and change Hippo index test SQL script:
 
@@ -136,13 +139,6 @@ For using Hippo in PostgreSQL Regression Test Mode, you need to
 ./src/test/regress/results/hippo_random.out
 ```
 
-* Modify Regression Test schedule if necessary
-
-```
-./src/test/regress/parallel_schedule
-```
-For example, you can change "ignore: hippo_random" to "test: hippo_random". This will execute a random Hippo index test and the test may fail due to unpredicted results. The failure is normal.
-
 #Hippo Video Demonstration
 Want to have a try? Do not hesitate! 
 
@@ -150,9 +146,9 @@ Watch this video (No need for headsets) and learn how to get started: [Hippo Vid
 
 # Publication
 
-Jia Yu, Mohamed Sarwat. ["Two Birds, One Stone: A Fast, yet Lightweight, Indexing Scheme for Modern Database Systems"](http://www.public.asu.edu/~jiayu2/hippo/publication/p428-yu.pdf). (Research paper) 
+Jia Yu, Mohamed Sarwat. ["Two Birds, One Stone: A Fast, yet Lightweight, Indexing Scheme for Modern Database Systems"](http://www.vldb.org/pvldb/vol10/p385-yu.pdf). (Research paper) 
 
-(To appear) In Proceeding of the 43rd International Conference on Very Large Data Bases VLDB 2017, Munich, Germany, August 2017
+In Proceeding of the 43rd International Conference on Very Large Data Bases VLDB 2017, Munich, Germany, August 2017
 
 # Contact
 

@@ -2,6 +2,7 @@
 
 #include "postgres_fe.h"
 #include <ctype.h>
+#include <float.h>
 #include <limits.h>
 
 #include "extern.h"
@@ -262,8 +263,7 @@ set_var_from_str(char *str, char **ptr, numeric *dest)
 			return -1;
 		}
 		(*ptr) = endptr;
-		if (exponent > NUMERIC_MAX_PRECISION ||
-			exponent < -NUMERIC_MAX_PRECISION)
+		if (exponent >= INT_MAX / 2 || exponent <= -(INT_MAX / 2))
 		{
 			errno = PGTYPES_NUM_BAD_NUMERIC;
 			return -1;
@@ -1497,11 +1497,11 @@ PGTYPESnumeric_copy(numeric *src, numeric *dst)
 int
 PGTYPESnumeric_from_double(double d, numeric *dst)
 {
-	char		buffer[100];
+	char		buffer[DBL_DIG + 100];
 	numeric    *tmp;
 	int			i;
 
-	if (sprintf(buffer, "%f", d) == 0)
+	if (sprintf(buffer, "%.*g", DBL_DIG, d) <= 0)
 		return -1;
 
 	if ((tmp = PGTYPESnumeric_from_asc(buffer, NULL)) == NULL)

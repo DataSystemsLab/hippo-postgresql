@@ -11,7 +11,7 @@
  * bms_is_empty() in preference to testing for NULL.)
  *
  *
- * Copyright (c) 2003-2015, PostgreSQL Global Development Group
+ * Copyright (c) 2003-2016, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  src/backend/nodes/bitmapset.c
@@ -684,7 +684,6 @@ bms_add_member(Bitmapset *a, int x)
 		int			i;
 
 		a = (Bitmapset *) repalloc(a, BITMAPSET_SIZE(wordnum + 1));
-
 		a->nwords = wordnum + 1;
 		/* zero out the enlarged portion */
 		for (i = oldnwords; i < a->nwords; i++)

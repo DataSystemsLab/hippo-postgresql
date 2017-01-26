@@ -2,15 +2,20 @@
  * hippo.h
  * Author: jiayu2@asu.edu
  */
+#include "postgres.h"
+
 #include "access/reloptions.h"
 #include "access/relscan.h"
-#include "postgres.h"
+
 #include "access/xlogreader.h"
 #include "lib/stringinfo.h"
 #include "storage/bufpage.h"
 #include "storage/buf.h"
 #include "utils/relcache.h"
 #include "access/itup.h"
+
+#include "fmgr.h"
+#include "nodes/execnodes.h"
 #ifndef HIPPO_H
 #define HIPPO_H
 
@@ -102,10 +107,11 @@ typedef struct HippoBuildState
 	BlockNumber hp_PageNum; /* The last page we have */
 	BlockNumber hp_currentPage; /* Which page we are working on now */
 	int16 hp_length; /* This length records the real length of a current grid list */
-	int16 hp_grids[10000]; /* This array pre-allocates a large enough size (10000) to accomodate all possible grids */
+//	int16 hp_grids[10000]; /* This array pre-allocates a large enough size (10000) to accomodate all possible grids */
 	Buffer		hp_currentInsertBuf;/* The new index tuple is to be inserted into this buffer */
 	Page hp_currentInsertPage;
-	Datum *histogramBounds;
+//	int histogramBounds[10003]; /* current Postgres supports at most 1000 histogram buckets and 10001 bounds.Hippo adds two overflow buckets. */
+	Datum* histogramBounds;
 	int histogramBoundsNum;
 	int lengthcounter;
 	struct bitmap *originalBitset;
@@ -123,7 +129,7 @@ typedef struct HippoBuildState
 /*
  * The following parameters are used to control the sorted lists
  */
-	HippoItemPointer hippoItemPointer[100000000];
+	HippoItemPointer hippoItemPointer[10000000];
 	int itemPointerMemSize;
 	BlockNumber sorted_list_pages;
 
@@ -157,20 +163,40 @@ typedef struct HippoScanState
 /*
  * Standard system calls for functions in hippo.c (external entry points for PG Kernel)
  */
-extern Datum hippobeginscan(PG_FUNCTION_ARGS);
-extern Datum hippobuild(PG_FUNCTION_ARGS);
-extern Datum hippobuildempty(PG_FUNCTION_ARGS);
-extern Datum hippogetbitmap(PG_FUNCTION_ARGS);
-extern Datum hippoendscan(PG_FUNCTION_ARGS);
-extern Datum hipporescan(PG_FUNCTION_ARGS);
-extern Datum hippooptions(PG_FUNCTION_ARGS);
-extern void hippo_desc(StringInfo buf, XLogReaderState *record);
-extern const char *hippo_identify(uint8 info);
-extern void hippo_redo(XLogReaderState *record);
-extern Datum hippoinsert(PG_FUNCTION_ARGS);
-extern Datum hippobulkdelete(PG_FUNCTION_ARGS);
-extern Datum hippovacuumcleanup(PG_FUNCTION_ARGS);
+//extern Datum hippobeginscan(PG_FUNCTION_ARGS);
+//extern Datum hippobuild(PG_FUNCTION_ARGS);
+//extern Datum hippobuildempty(PG_FUNCTION_ARGS);
+//extern Datum hippogetbitmap(PG_FUNCTION_ARGS);
+//extern Datum hippoendscan(PG_FUNCTION_ARGS);
+//extern Datum hipporescan(PG_FUNCTION_ARGS);
+//extern Datum hippooptions(PG_FUNCTION_ARGS);
+//extern void hippo_desc(StringInfo buf, XLogReaderState *record);
+//extern const char *hippo_identify(uint8 info);
+//extern void hippo_redo(XLogReaderState *record);
+//extern Datum hippoinsert(PG_FUNCTION_ARGS);
+//extern Datum hippobulkdelete(PG_FUNCTION_ARGS);
+//extern Datum hippovacuumcleanup(PG_FUNCTION_ARGS);
 
+extern Datum hippohandler(PG_FUNCTION_ARGS);
+
+extern IndexBuildResult *hippobuild(Relation heap, Relation index,
+		  struct IndexInfo *indexInfo);
+extern void hippobuildempty(Relation index);
+extern bool hippoinsert(Relation idxRel, Datum *values, bool *nulls,
+		   ItemPointer heaptid, Relation heapRel,
+		   IndexUniqueCheck checkUnique);
+extern IndexScanDesc hippobeginscan(Relation r, int nkeys, int norderbys);
+extern int64 hippogetbitmap(IndexScanDesc scan, TIDBitmap *tbm);
+extern void hipporescan(IndexScanDesc scan, ScanKey scankey, int nscankeys,
+		   ScanKey orderbys, int norderbys);
+extern void hippoendscan(IndexScanDesc scan);
+extern IndexBulkDeleteResult *hippobulkdelete(IndexVacuumInfo *info,
+			   IndexBulkDeleteResult *stats,
+			   IndexBulkDeleteCallback callback,
+			   void *callback_state);
+extern IndexBulkDeleteResult *hippovacuumcleanup(IndexVacuumInfo *info,
+				  IndexBulkDeleteResult *stats);
+extern bytea *hippooptions(Datum reloptions, bool validate);
 
 /*
  * Hippo utils functions in hippo_utils.c
@@ -188,12 +214,12 @@ OffsetNumber hippo_doinsert(HippoBuildState *buildstate);
  * Index entry operations
  */
 void hippoGetNextIndexTuple(IndexScanDesc scan);
-IndexTupleData * hippo_form_indextuple(HippoTupleLong *memTuple, Size *memlen, int histogramBoundsNum);
+IndexTupleData * hippo_form_indextuple(HippoTupleLong *memTuple, Size *memlen);
 void hippo_form_memtuple(HippoTupleLong *hippoTupleLong,IndexTuple diskTuple,Size *memlen);
 bool hippo_can_do_samepage_update(Buffer buffer, Size origsz, Size newsz);
 HippoTupleLong* build_real_hippo_tuplelong(HippoBuildState* buildstate);
 void copy_hippo_mem_tuple(HippoTupleLong *newTuple,HippoTupleLong* oldTuple);
-
+int calculate_disk_indextuple_size(HippoTupleLong *memTuple);
 
 /*
  * Complete histogram operations

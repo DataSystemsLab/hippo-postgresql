@@ -36,7 +36,7 @@
  * to look like NO SCROLL cursors.
  *
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/utils/portal.h
@@ -119,12 +119,16 @@ typedef struct PortalData
 	MemoryContext heap;			/* subsidiary memory for portal */
 	ResourceOwner resowner;		/* resources owned by portal */
 	void		(*cleanup) (Portal portal);		/* cleanup hook */
-	SubTransactionId createSubid;		/* the ID of the creating subxact */
 
 	/*
-	 * if createSubid is InvalidSubTransactionId, the portal is held over from
-	 * a previous transaction
+	 * State data for remembering which subtransaction(s) the portal was
+	 * created or used in.  If the portal is held over from a previous
+	 * transaction, both subxids are InvalidSubTransactionId.  Otherwise,
+	 * createSubid is the creating subxact and activeSubid is the last subxact
+	 * in which we ran the portal.
 	 */
+	SubTransactionId createSubid;		/* the creating subxact */
+	SubTransactionId activeSubid;		/* the last subxact with activity */
 
 	/* The query or queries the portal will execute */
 	const char *sourceText;		/* text of query (as of 8.4, never NULL) */
@@ -159,18 +163,27 @@ typedef struct PortalData
 	MemoryContext holdContext;	/* memory containing holdStore */
 
 	/*
+	 * Snapshot under which tuples in the holdStore were read.  We must keep a
+	 * reference to this snapshot if there is any possibility that the tuples
+	 * contain TOAST references, because releasing the snapshot could allow
+	 * recently-dead rows to be vacuumed away, along with any toast data
+	 * belonging to them.  In the case of a held cursor, we avoid needing to
+	 * keep such a snapshot by forcibly detoasting the data.
+	 */
+	Snapshot	holdSnapshot;	/* registered snapshot, or NULL if none */
+
+	/*
 	 * atStart, atEnd and portalPos indicate the current cursor position.
 	 * portalPos is zero before the first row, N after fetching N'th row of
 	 * query.  After we run off the end, portalPos = # of rows in query, and
-	 * atEnd is true.  If portalPos overflows, set posOverflow (this causes us
-	 * to stop relying on its value for navigation).  Note that atStart
-	 * implies portalPos == 0, but not the reverse (portalPos could have
-	 * overflowed).
+	 * atEnd is true.  Note that atStart implies portalPos == 0, but not the
+	 * reverse: we might have backed up only as far as the first row, not to
+	 * the start.  Also note that various code inspects atStart and atEnd, but
+	 * only the portal movement routines should touch portalPos.
 	 */
 	bool		atStart;
 	bool		atEnd;
-	bool		posOverflow;
-	long		portalPos;
+	uint64		portalPos;
 
 	/* Presentation data, primarily used by the pg_cursors system view */
 	TimestampTz creation_time;	/* time at which this portal was defined */
@@ -201,12 +214,14 @@ extern void AtSubCommit_Portals(SubTransactionId mySubid,
 					ResourceOwner parentXactOwner);
 extern void AtSubAbort_Portals(SubTransactionId mySubid,
 				   SubTransactionId parentSubid,
+				   ResourceOwner myXactOwner,
 				   ResourceOwner parentXactOwner);
 extern void AtSubCleanup_Portals(SubTransactionId mySubid);
 extern Portal CreatePortal(const char *name, bool allowDup, bool dupSilent);
 extern Portal CreateNewPortal(void);
 extern void PinPortal(Portal portal);
 extern void UnpinPortal(Portal portal);
+extern void MarkPortalActive(Portal portal);
 extern void MarkPortalDone(Portal portal);
 extern void MarkPortalFailed(Portal portal);
 extern void PortalDrop(Portal portal, bool isTopCommit);

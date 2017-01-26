@@ -61,6 +61,8 @@ ALTER TABLE ALL IN TABLESPACE <replaceable class="PARAMETER">name</replaceable> 
     ENABLE ALWAYS RULE <replaceable class="PARAMETER">rewrite_rule_name</replaceable>
     DISABLE ROW LEVEL SECURITY
     ENABLE ROW LEVEL SECURITY
+    FORCE ROW LEVEL SECURITY
+    NO FORCE ROW LEVEL SECURITY
     CLUSTER ON <replaceable class="PARAMETER">index_name</replaceable>
     SET WITHOUT CLUSTER
     SET WITH OIDS
@@ -434,6 +436,21 @@ ALTER TABLE ALL IN TABLESPACE <replaceable class="PARAMETER">name</replaceable> 
    </varlistentry>
 
    <varlistentry>
+    <term><literal>NO FORCE</literal>/<literal>FORCE ROW LEVEL SECURITY</literal></term>
+    <listitem>
+     <para>
+      These forms control the application of row security policies belonging
+      to the table when the user is the table owner.  If enabled, row level
+      security policies will be applied when the user is the table owner.  If
+      disabled (the default) then row level security will not be applied when
+      the user is the table owner.
+      See also
+      <xref linkend="SQL-CREATEPOLICY">.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
     <term><literal>CLUSTER ON</literal></term>
     <listitem>
      <para>
@@ -544,7 +561,7 @@ ALTER TABLE ALL IN TABLESPACE <replaceable class="PARAMETER">name</replaceable> 
      </para>
 
      <para>
-      Changing autovacuum storage parameters acquires a <literal>SHARE UPDATE EXCLUSIVE</literal> lock.
+      Changing fillfactor and autovacuum storage parameters acquires a <literal>SHARE UPDATE EXCLUSIVE</literal> lock.
      </para>
 
      <note>
@@ -806,7 +823,9 @@ ALTER TABLE ALL IN TABLESPACE <replaceable class="PARAMETER">name</replaceable> 
       <listitem>
        <para>
         Automatically drop objects that depend on the dropped column
-        or constraint (for example, views referencing the column).
+        or constraint (for example, views referencing the column),
+        and in turn all objects that depend on those objects
+        (see <xref linkend="ddl-depend">).
        </para>
       </listitem>
      </varlistentry>
@@ -1072,7 +1091,7 @@ ALTER TABLE distributors
   </para>
 
   <para>
-   To change an integer column containing UNIX timestamps to <type>timestamp
+   To change an integer column containing Unix timestamps to <type>timestamp
    with time zone</type> via a <literal>USING</literal> clause:
 <programlisting>
 ALTER TABLE foo

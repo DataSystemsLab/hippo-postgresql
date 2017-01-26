@@ -7,14 +7,7 @@ SELECT '"abc
 def"'::jsonb;					-- ERROR, unescaped newline in string constant
 SELECT '"\n\"\\"'::jsonb;		-- OK, legal escapes
 SELECT '"\v"'::jsonb;			-- ERROR, not a valid JSON escape
-SELECT '"\u"'::jsonb;			-- ERROR, incomplete escape
-SELECT '"\u00"'::jsonb;			-- ERROR, incomplete escape
-SELECT '"\u000g"'::jsonb;		-- ERROR, g is not a hex digit
-SELECT '"\u0045"'::jsonb;		-- OK, legal escape
-SELECT '"\u0000"'::jsonb;		-- ERROR, we don't support U+0000
--- use octet_length here so we don't get an odd unicode char in the
--- output
-SELECT octet_length('"\uaBcD"'::jsonb::text); -- OK, uppercase and lower case both OK
+-- see json_encoding test for input with unicode escapes
 
 -- Numbers.
 SELECT '1'::jsonb;				-- OK
@@ -48,6 +41,12 @@ SELECT '{"abc":1,"def":2,"ghi":[3,4],"hij":{"klm":5,"nop":[6]}}'::jsonb; -- OK
 SELECT '{"abc":1:2}'::jsonb;		-- ERROR, colon in wrong spot
 SELECT '{"abc":1,3}'::jsonb;		-- ERROR, no value
 
+-- Recursion.
+SET max_stack_depth = '100kB';
+SELECT repeat('[', 10000)::jsonb;
+SELECT repeat('{"a":', 10000)::jsonb;
+RESET max_stack_depth;
+
 -- Miscellaneous stuff.
 SELECT 'true'::jsonb;			-- OK
 SELECT 'false'::jsonb;			-- OK
@@ -77,8 +76,11 @@ COMMIT;
 select to_jsonb(date '2014-05-28');
 
 select to_jsonb(date 'Infinity');
+select to_jsonb(date '-Infinity');
 select to_jsonb(timestamp 'Infinity');
+select to_jsonb(timestamp '-Infinity');
 select to_jsonb(timestamptz 'Infinity');
+select to_jsonb(timestamptz '-Infinity');
 
 --jsonb_agg
 
@@ -331,6 +333,10 @@ SELECT jsonb_build_object(json '{"a":1,"b":2}', 3);
 
 SELECT jsonb_build_object('{1,2,3}'::int[], 3);
 
+-- handling of NULL values
+SELECT jsonb_object_agg(1, NULL::jsonb);
+SELECT jsonb_object_agg(NULL, '{"a":1}');
+
 CREATE TEMP TABLE foo (serial_num int, name text, type text);
 INSERT INTO foo VALUES (847001,'t15','GE1043');
 INSERT INTO foo VALUES (847002,'t16','GE1043');
@@ -345,6 +351,12 @@ INSERT INTO foo VALUES (999999, NULL, 'bar');
 SELECT jsonb_object_agg(name, type) FROM foo;
 
 -- jsonb_object
+
+-- empty object, one dimension
+SELECT jsonb_object('{}');
+
+-- empty object, two dimensions
+SELECT jsonb_object('{}', '{}');
 
 -- one dimension
 SELECT jsonb_object('{a,1,b,2,3,NULL,"d e f","a b c"}');
@@ -488,28 +500,6 @@ SELECT * FROM jsonb_populate_recordset(NULL::jbpop,'[{"a":"blurfl","x":43.2},{"b
 SELECT * FROM jsonb_populate_recordset(row('def',99,NULL)::jbpop,'[{"a":"blurfl","x":43.2},{"b":3,"c":"2012-01-20 10:42:53"}]') q;
 SELECT * FROM jsonb_populate_recordset(row('def',99,NULL)::jbpop,'[{"a":[100,200,300],"x":43.2},{"a":{"z":true},"b":3,"c":"2012-01-20 10:42:53"}]') q;
 
--- handling of unicode surrogate pairs
-
-SELECT octet_length((jsonb '{ "a":  "\ud83d\ude04\ud83d\udc36" }' -> 'a')::text) AS correct_in_utf8;
-SELECT jsonb '{ "a":  "\ud83d\ud83d" }' -> 'a'; -- 2 high surrogates in a row
-SELECT jsonb '{ "a":  "\ude04\ud83d" }' -> 'a'; -- surrogates in wrong order
-SELECT jsonb '{ "a":  "\ud83dX" }' -> 'a'; -- orphan high surrogate
-SELECT jsonb '{ "a":  "\ude04X" }' -> 'a'; -- orphan low surrogate
-
--- handling of simple unicode escapes
-
-SELECT jsonb '{ "a":  "the Copyright \u00a9 sign" }' as correct_in_utf8;
-SELECT jsonb '{ "a":  "dollar \u0024 character" }' as correct_everywhere;
-SELECT jsonb '{ "a":  "dollar \\u0024 character" }' as not_an_escape;
-SELECT jsonb '{ "a":  "null \u0000 escape" }' as fails;
-SELECT jsonb '{ "a":  "null \\u0000 escape" }' as not_an_escape;
-
-SELECT jsonb '{ "a":  "the Copyright \u00a9 sign" }' ->> 'a' as correct_in_utf8;
-SELECT jsonb '{ "a":  "dollar \u0024 character" }' ->> 'a' as correct_everywhere;
-SELECT jsonb '{ "a":  "dollar \\u0024 character" }' ->> 'a' as not_an_escape;
-SELECT jsonb '{ "a":  "null \u0000 escape" }' ->> 'a' as fails;
-SELECT jsonb '{ "a":  "null \\u0000 escape" }' ->> 'a' as not_an_escape;
-
 -- jsonb_to_record and jsonb_to_recordset
 
 select * from jsonb_to_record('{"a":1,"b":"foo","c":"bar"}')
@@ -517,6 +507,14 @@ select * from jsonb_to_record('{"a":1,"b":"foo","c":"bar"}')
 
 select * from jsonb_to_recordset('[{"a":1,"b":"foo","d":false},{"a":2,"b":"bar","c":true}]')
     as x(a int, b text, c boolean);
+
+select *, c is null as c_is_null
+from jsonb_to_record('{"a":1, "b":{"c":16, "d":2}, "x":8}'::jsonb)
+    as t(a int, b jsonb, c text, x int);
+
+select *, c is null as c_is_null
+from jsonb_to_recordset('[{"a":1, "b":{"c":16, "d":2}, "x":8}]'::jsonb)
+    as t(a int, b jsonb, c text, x int);
 
 -- indexing
 SELECT count(*) FROM testjsonb WHERE j @> '{"wait":null}';
@@ -634,6 +632,26 @@ SELECT '{"a":[1,2,{"c":3,"x":4}],"c":"b"}'::jsonb @> '{"a":[{"x":4}]}';
 SELECT '{"a":[1,2,{"c":3,"x":4}],"c":"b"}'::jsonb @> '{"a":[{"x":4},3]}';
 SELECT '{"a":[1,2,{"c":3,"x":4}],"c":"b"}'::jsonb @> '{"a":[{"x":4},1]}';
 
+-- check some corner cases for indexed nested containment (bug #13756)
+create temp table nestjsonb (j jsonb);
+insert into nestjsonb (j) values ('{"a":[["b",{"x":1}],["b",{"x":2}]],"c":3}');
+insert into nestjsonb (j) values ('[[14,2,3]]');
+insert into nestjsonb (j) values ('[1,[14,2,3]]');
+create index on nestjsonb using gin(j jsonb_path_ops);
+
+set enable_seqscan = on;
+set enable_bitmapscan = off;
+select * from nestjsonb where j @> '{"a":[[{"x":2}]]}'::jsonb;
+select * from nestjsonb where j @> '{"c":3}';
+select * from nestjsonb where j @> '[[14]]';
+set enable_seqscan = off;
+set enable_bitmapscan = on;
+select * from nestjsonb where j @> '{"a":[[{"x":2}]]}'::jsonb;
+select * from nestjsonb where j @> '{"c":3}';
+select * from nestjsonb where j @> '[[14]]';
+reset enable_seqscan;
+reset enable_bitmapscan;
+
 -- nested object field / array index lookup
 SELECT '{"n":null,"a":1,"b":[1,2],"c":{"1":2},"d":{"1":[2,3]}}'::jsonb -> 'n';
 SELECT '{"n":null,"a":1,"b":[1,2],"c":{"1":2},"d":{"1":[2,3]}}'::jsonb -> 'a';
@@ -718,6 +736,13 @@ select '["c"]' || '["a", "b"]'::jsonb;
 select '["a", "b"]'::jsonb || '"c"';
 select '"c"' || '["a", "b"]'::jsonb;
 
+select '[]'::jsonb || '["a"]'::jsonb;
+select '[]'::jsonb || '"a"'::jsonb;
+select '"b"'::jsonb || '"a"'::jsonb;
+select '{}'::jsonb || '{"a":"b"}'::jsonb;
+select '[]'::jsonb || '{"a":"b"}'::jsonb;
+select '{"a":"b"}'::jsonb || '[]'::jsonb;
+
 select '"a"'::jsonb || '{"a":1}';
 select '{"a":1}' || '"a"'::jsonb;
 
@@ -789,6 +814,7 @@ select '[]'::jsonb #- '{a}';
 select jsonb_set('"a"','{a}','"b"'); --error
 select jsonb_set('{}','{a}','"b"', false);
 select jsonb_set('[]','{1}','"b"', false);
+select jsonb_set('[{"f1":1,"f2":null},2,null,3]', '{0}','[2,3,4]', false);
 
 -- jsonb_set adding instead of replacing
 
@@ -809,3 +835,36 @@ select jsonb_set('{}','{x}','{"foo":123}');
 select jsonb_set('[]','{0}','{"foo":123}');
 select jsonb_set('[]','{99}','{"foo":123}');
 select jsonb_set('[]','{-99}','{"foo":123}');
+select jsonb_set('{"a": [1, 2, 3]}', '{a, non_integer}', '"new_value"');
+select jsonb_set('{"a": {"b": [1, 2, 3]}}', '{a, b, non_integer}', '"new_value"');
+select jsonb_set('{"a": {"b": [1, 2, 3]}}', '{a, b, NULL}', '"new_value"');
+
+
+-- jsonb_insert
+select jsonb_insert('{"a": [0,1,2]}', '{a, 1}', '"new_value"');
+select jsonb_insert('{"a": [0,1,2]}', '{a, 1}', '"new_value"', true);
+select jsonb_insert('{"a": {"b": {"c": [0, 1, "test1", "test2"]}}}', '{a, b, c, 2}', '"new_value"');
+select jsonb_insert('{"a": {"b": {"c": [0, 1, "test1", "test2"]}}}', '{a, b, c, 2}', '"new_value"', true);
+select jsonb_insert('{"a": [0,1,2]}', '{a, 1}', '{"b": "value"}');
+select jsonb_insert('{"a": [0,1,2]}', '{a, 1}', '["value1", "value2"]');
+
+-- edge cases
+select jsonb_insert('{"a": [0,1,2]}', '{a, 0}', '"new_value"');
+select jsonb_insert('{"a": [0,1,2]}', '{a, 0}', '"new_value"', true);
+select jsonb_insert('{"a": [0,1,2]}', '{a, 2}', '"new_value"');
+select jsonb_insert('{"a": [0,1,2]}', '{a, 2}', '"new_value"', true);
+select jsonb_insert('{"a": [0,1,2]}', '{a, -1}', '"new_value"');
+select jsonb_insert('{"a": [0,1,2]}', '{a, -1}', '"new_value"', true);
+select jsonb_insert('[]', '{1}', '"new_value"');
+select jsonb_insert('[]', '{1}', '"new_value"', true);
+select jsonb_insert('{"a": []}', '{a, 1}', '"new_value"');
+select jsonb_insert('{"a": []}', '{a, 1}', '"new_value"', true);
+select jsonb_insert('{"a": [0,1,2]}', '{a, 10}', '"new_value"');
+select jsonb_insert('{"a": [0,1,2]}', '{a, -10}', '"new_value"');
+
+-- jsonb_insert should be able to insert new value for objects, but not to replace
+select jsonb_insert('{"a": {"b": "value"}}', '{a, c}', '"new_value"');
+select jsonb_insert('{"a": {"b": "value"}}', '{a, c}', '"new_value"', true);
+
+select jsonb_insert('{"a": {"b": "value"}}', '{a, b}', '"new_value"');
+select jsonb_insert('{"a": {"b": "value"}}', '{a, b}', '"new_value"', true);

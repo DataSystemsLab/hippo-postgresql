@@ -3,7 +3,7 @@
  * generic-gcc.h
  *	  Atomic operations, implemented using gcc (or compatible) intrinsics.
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * NOTES:
@@ -25,14 +25,9 @@
 #endif
 
 /*
- * icc provides all the same intrinsics but doesn't understand gcc's inline asm
+ * An empty asm block should be a sufficient compiler barrier.
  */
-#if defined(__INTEL_COMPILER)
-/* NB: Yes, __memory_barrier() is actually just a compiler barrier */
-#define pg_compiler_barrier_impl()	__memory_barrier()
-#else
 #define pg_compiler_barrier_impl()	__asm__ __volatile__("" ::: "memory")
-#endif
 
 /*
  * If we're on GCC 4.1.0 or higher, we should be able to get a memory barrier

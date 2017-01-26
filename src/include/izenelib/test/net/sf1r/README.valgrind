@@ -1,4 +1,0 @@
-Use valgrind for finding memory leaks.
-
-Usage:
- $ valgrind --leak-check=yes test_executable

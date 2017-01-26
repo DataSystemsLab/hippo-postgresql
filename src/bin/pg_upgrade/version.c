@@ -3,13 +3,14 @@
  *
  *	Postgres-version-specific routines
  *
- *	Copyright (c) 2010-2015, PostgreSQL Global Development Group
+ *	Copyright (c) 2010-2016, PostgreSQL Global Development Group
  *	src/bin/pg_upgrade/version.c
  */
 
 #include "postgres_fe.h"
 
 #include "pg_upgrade.h"
+#include "fe_utils/string_utils.h"
 
 
 
@@ -48,10 +49,17 @@ new_9_0_populate_pg_largeobject_metadata(ClusterInfo *cluster, bool check_mode)
 			found = true;
 			if (!check_mode)
 			{
+				PQExpBufferData connectbuf;
+
 				if (script == NULL && (script = fopen_priv(output_path, "w")) == NULL)
-					pg_fatal("could not open file \"%s\": %s\n", output_path, getErrorText(errno));
-				fprintf(script, "\\connect %s\n",
-						quote_identifier(active_db->db_name));
+					pg_fatal("could not open file \"%s\": %s\n", output_path,
+							 strerror(errno));
+
+				initPQExpBuffer(&connectbuf);
+				appendPsqlMetaConnect(&connectbuf, active_db->db_name);
+				fputs(connectbuf.data, script);
+				termPQExpBuffer(&connectbuf);
+
 				fprintf(script,
 						"SELECT pg_catalog.lo_create(t.loid)\n"
 						"FROM (SELECT DISTINCT loid FROM pg_catalog.pg_largeobject) AS t;\n");
@@ -143,7 +151,8 @@ old_9_3_check_for_line_data_type_usage(ClusterInfo *cluster)
 		{
 			found = true;
 			if (script == NULL && (script = fopen_priv(output_path, "w")) == NULL)
-				pg_fatal("could not open file \"%s\": %s\n", output_path, getErrorText(errno));
+				pg_fatal("could not open file \"%s\": %s\n", output_path,
+						 strerror(errno));
 			if (!db_used)
 			{
 				fprintf(script, "Database: %s\n", active_db->db_name);
