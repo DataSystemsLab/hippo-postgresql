@@ -110,7 +110,8 @@ typedef struct HippoBuildState
 //	int16 hp_grids[10000]; /* This array pre-allocates a large enough size (10000) to accomodate all possible grids */
 	Buffer		hp_currentInsertBuf;/* The new index tuple is to be inserted into this buffer */
 	Page hp_currentInsertPage;
-	Datum *histogramBounds;
+//	int histogramBounds[10003]; /* current Postgres supports at most 1000 histogram buckets and 10001 bounds.Hippo adds two overflow buckets. */
+	Datum* histogramBounds;
 	int histogramBoundsNum;
 	int lengthcounter;
 	struct bitmap *originalBitset;

@@ -255,6 +255,7 @@ void SortedListPerIndexPage(HippoBuildState *hippoBuildState,BlockNumber current
 OffsetNumber
 hippo_doinsert(HippoBuildState *buildstate)
 {
+	ereport(DEBUG2,(errmsg("[hippo_doinsert] start")));
 	Page		page;
 	OffsetNumber off,maxoff;
 	Buffer buffer=buildstate->hp_currentInsertBuf;
@@ -316,6 +317,7 @@ hippo_doinsert(HippoBuildState *buildstate)
 	 * Free serialized tuple
 	 */
 	pfree((char *)data);
+	ereport(DEBUG2,(errmsg("[hippo_doinsert] stop")));
 	return off;
 }
 
@@ -380,7 +382,6 @@ void put_histogram(Relation idxrel, BlockNumber startBlock, int histogramBoundsN
 	UnlockReleaseBuffer(buffer);
 	ereport(DEBUG1,(errmsg("[put_histogram] stop")));
 	}
-
 }
 
 /*
@@ -508,59 +509,65 @@ void binary_search_histogram_ondisk(searchResult *histogramMatchData, Relation i
  */
 void binary_search_histogram(searchResult *histogramMatchData,int histogramBoundsNum,Datum *histogramBounds, Datum value)
 {
+	ereport(DEBUG1,(errmsg("[binary_search_histogram] start")));
 	int min=0,max=histogramBoundsNum-1,equalFlag,equalPosition,guess;
-						histogramMatchData->index=-9999;
-						histogramMatchData->numberOfGuesses=0;
-						equalFlag=-1;
-						if((int)histogramBounds[min]>DatumGetInt32(value))
-						{
-							/*
-							 * Got an overflow data. It is larger than the upper bound. Total number is the id.
-							 */
-							histogramMatchData->index=histogramBoundsNum;
-							return;
-						}
-						if((int)histogramBounds[max]<DatumGetInt32(value))
-						{
-							/*
-							 * Got an overflow data. It is larger than the upper bound. Total number + 1 is the id.
-							 */
-							histogramMatchData->index=histogramBoundsNum+1;
-							return;
-						}
-				        if((int)histogramBounds[min]==DatumGetInt32(value))
-				        {
-				        	equalFlag=min;
+	histogramMatchData->index=-9999;
+	histogramMatchData->numberOfGuesses=0;
+	equalFlag=-1;
+	ereport(DEBUG1,(errmsg("[binary_search_histogram] Initialized necessary variables")));
+	if((int)histogramBounds[min]>DatumGetInt32(value))
+	{
+		/*
+		 * Got an overflow data. It is smaller than the lower bound. Total number is the id.
+		 */
+		histogramMatchData->index=max;
+		ereport(DEBUG1,(errmsg("[binary_search_histogram] histogramBounds[min] is %d value is %d", (int)histogramBounds[min]),DatumGetInt32(value)));
+		ereport(DEBUG1,(errmsg("[binary_search_histogram] stop")));
+		return;
+	}
+	if((int)histogramBounds[max]<DatumGetInt32(value))
+	{
+		/*
+		 * Got an overflow data. It is larger than the upper bound. Total number + 1 is the id.
+		 */
+		histogramMatchData->index=max+2;
+		ereport(DEBUG1,(errmsg("[binary_search_histogram] histogramBounds[max] is %d value is %d", (int)histogramBounds[max],DatumGetInt32(value))));
+		ereport(DEBUG1,(errmsg("[binary_search_histogram] stop")));
+		return;
+	}
+	if((int)histogramBounds[min]==DatumGetInt32(value))
+	{
+		equalFlag=min;
 
-				        }
-				        if((int)histogramBounds[max]==DatumGetInt32(value))
-				        {
-				        	equalFlag=max;
+	}
+	if((int)histogramBounds[max]==DatumGetInt32(value))
+	{
+		equalFlag=max;
+	}
+	ereport(DEBUG1,(errmsg("[binary_search_histogram] Checked corner case")));
+	while (min<=max) {
 
-				        }
+		guess = (min + max) / 2;
+		histogramMatchData->numberOfGuesses++;
+		if((int)histogramBounds[guess]>DatumGetInt32(value))
+		{
+			max=guess-1;
+		}
+		else
+		{
+			min=guess+1;
+		}
 
-						while (min<=max) {
-
-						        guess = (min + max) / 2;
-						        histogramMatchData->numberOfGuesses++;
-						        if((int)histogramBounds[guess]>DatumGetInt32(value))
-						        {
-						        	max=guess-1;
-						        }
-						        else
-						        {
-						        	min=guess+1;
-						        }
-
-						    }
-						if(min==0)
-						{
-							histogramMatchData->index=0;
-						}
-						else
-						{
-						histogramMatchData->index=min-1;
-						}
+	}
+	if(min==0)
+	{
+		histogramMatchData->index=0;
+	}
+	else
+	{
+		histogramMatchData->index=min-1;
+	}
+	ereport(DEBUG1,(errmsg("[binary_search_histogram] stop")));
 }
 
 

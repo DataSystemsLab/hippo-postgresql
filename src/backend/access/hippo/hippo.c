@@ -96,14 +96,17 @@ hippobuildCallback(Relation index,
 		bool tupleIsAlive,
 		void *state)
 {
-
+	ereport(DEBUG2,(errmsg("[hippobuildCallback] start")));
 	BlockNumber thisblock;
 	HippoBuildState *buildstate = (HippoBuildState *) state;
 	Datum *histogramBounds=buildstate->histogramBounds;
 	int histogramBoundsNum=buildstate->histogramBoundsNum;
 	thisblock = ItemPointerGetBlockNumber(&htup->t_self);
+	ereport(DEBUG2,(errmsg("[hippobuildCallback] Retrieved necessary from buildstate")));
+	ereport(DEBUG2,(errmsg("[hippobuildCallback] first histogram bound is %d",DatumGetInt32(histogramBounds[0]))));
 	if(buildstate->hp_PageNum==0)
 	{
+		ereport(DEBUG2,(errmsg("[hippobuildCallback] Initialize the buildstate for first page")));
 		/*
 		 * We are working on the first index tuple.
 		 */
@@ -113,9 +116,11 @@ hippobuildCallback(Relation index,
 		buildstate->hp_scanpage++;
 		buildstate->hp_length=0;
 		buildstate->dirtyFlag=true;
+
 	}
 	else
 	{
+		ereport(DEBUG2,(errmsg("[hippobuildCallback] Check the density")));
 		/*
 		 * For all incoming page, check current working partial histogram density.
 		 */
@@ -131,6 +136,7 @@ hippobuildCallback(Relation index,
 				 */
 				buildstate->differentTuples=0;
 				buildstate->stopMergeFlag=true;
+				ereport(DEBUG2,(errmsg("[hippobuildCallback] The working index entry's density reaches the threshold.")));
 			}
 		}
 	}
@@ -139,6 +145,7 @@ hippobuildCallback(Relation index,
 	 */
 	if(buildstate->stopMergeFlag==true)
 	{
+		ereport(DEBUG2,(errmsg("[hippobuildCallback] Stop merging and prepare to insert one index entry")));
 		/*
 		 * Extract information from buildstate to a new real hippo tuple long
 		 */
@@ -156,11 +163,12 @@ hippobuildCallback(Relation index,
 		buildstate->hp_length=0;
 //		buildstate->hp_grids[0]=-1;
 		buildstate->originalBitset=bitmap_new();
+		ereport(DEBUG2,(errmsg("[hippobuildCallback] Inserted one index entry")));
 	}
 	buildstate->hp_currentPage=thisblock;
 	if (tupleIsAlive)
 	{
-
+		ereport(DEBUG2,(errmsg("[hippobuildCallback][Check a data tuple against the complete histogram] start")));
 		/* Cost estimation info */
 		buildstate->hp_numtuples++;
 		/* Go through histogram one by one */
@@ -171,17 +179,18 @@ hippobuildCallback(Relation index,
 		histogramMatchData.index=-9999;
 		histogramMatchData.numberOfGuesses=0;
 		binary_search_histogram(&histogramMatchData,histogramBoundsNum,histogramBounds, values[0]);
-		if(histogramMatchData.index<0)
+		/*
+		if(histogramMatchData.index>histogramBoundsNum-1)
 		{
-			/*
-			 *Got an overflow data tuple
-			 */
+			ereport(ERROR,(errmsg("[hippobuildCallback] Got an overflow tuple. Please rebuild the complete histogram by calling Analyze.")));
 		}
+		*/
 		if(bitmap_get(buildstate->originalBitset,histogramMatchData.index)==false)
 		{
 			buildstate->differentTuples++;
 			bitmap_set(buildstate->originalBitset,histogramMatchData.index);
 		}
+		ereport(DEBUG2,(errmsg("[hippobuildCallback][Check a data tuple against the complete histogram] stop")));
 	}
 	else
 	{
@@ -189,8 +198,7 @@ hippobuildCallback(Relation index,
 		 *Got an deleted tuple. Don't care about it.
 		 */
 	}
-
-
+	ereport(DEBUG2,(errmsg("[hippobuildCallback] stop")));
 }
 
 /*
@@ -201,7 +209,7 @@ initialize_hippo_buildstate(Relation heap, Relation index, Buffer buffer, AttrNu
 {
 	ereport(DEBUG1,(errmsg("[initialize_hippo_buildstate] start")));
 	HippoBuildState *buildstate;
-
+	int iterator = 0;
 	buildstate = palloc(sizeof(HippoBuildState));
 
 	buildstate->hp_irel= index;
@@ -224,6 +232,14 @@ initialize_hippo_buildstate(Relation heap, Relation index, Buffer buffer, AttrNu
 	buildstate->differenceThreshold=HippoGetMaxPagesPerRange(index);/* Hippo option: partial histogram density */
 	buildstate->differentTuples=0;
 	buildstate->stopMergeFlag=false;
+	ereport(DEBUG1,(errmsg("[initialize_hippo_buildstate] start to initialize histogram bounds")));
+	ereport(DEBUG1,(errmsg("[hippobuild] histogramBounds 3 is %d",DatumGetInt32(histogramBounds[2]))));
+	/*
+ 	 for(iterator=0;iterator<histogramBoundsNum;iterator++)
+		{
+			buildstate->histogramBounds[iterator]=DatumGetInt32(histogramBounds[iterator]);
+		}
+	 */
 	/*
 	 * Initialize sorted list parameters
 	 */
@@ -266,6 +282,7 @@ void retrieve_histogram_stat(Relation heap, AttrNumber attrNum, Datum *histogram
 	{
 		elog(ERROR, "[retrieve_histogram_stat] Got histogram NULL");
 	}
+	ereport(DEBUG1,(errmsg("[retrieve_histogram_stat] histogramBounds 3 is %d",(int)histogramBounds[2])));
 	ereport(DEBUG1,(errmsg("[retrieve_histogram_stat] stop")));
 }
 
@@ -330,7 +347,31 @@ IndexBuildResult *hippobuild(Relation heap, Relation index, IndexInfo *indexInfo
 	AttrNumber attrNum = indexInfo->ii_KeyAttrNumbers[0]; /* Current Hippo only support single column index */
 	BlockNumber sorted_list_pages=((RelationGetNumberOfBlocks(heap)/((1)*SORTED_LIST_TUPLES_PER_PAGE))+1);
 
-	retrieve_histogram_stat(heap, attrNum, histogramBounds, &histogramBoundsNum);
+	//retrieve_histogram_stat(heap, attrNum, histogramBounds, &histogramBoundsNum);
+
+	ereport(DEBUG1,(errmsg("[retrieve_histogram_stat] start")));
+	/*
+	 * Search PG kernel cache for pg_statistic info
+	 */
+	HeapTuple heapTuple=SearchSysCache2(STATRELATTINH,ObjectIdGetDatum(heap->rd_id),Int16GetDatum(attrNum));
+	if (HeapTupleIsValid(heapTuple))
+	{
+		get_attstatsslot(heapTuple,
+				get_atttype(heap->rd_id, attrNum),get_atttypmod(heap->rd_id,attrNum),
+				STATISTIC_KIND_HISTOGRAM, InvalidOid,
+				NULL,
+				&histogramBounds, &histogramBoundsNum,
+				NULL, NULL);
+	}
+	/*
+	 * If didn't release the stattuple, it will be locked.
+	 */
+	ReleaseSysCache(heapTuple);
+	if(histogramBounds==NULL)
+	{
+		elog(ERROR, "[retrieve_histogram_stat] Got histogram NULL");
+	}
+	ereport(DEBUG1,(errmsg("[retrieve_histogram_stat] stop")));
 
 	buffer = initialize_hippo_space(index, histogramBoundsNum, sorted_list_pages);
 
@@ -1223,13 +1264,13 @@ int64 hippogetbitmap(IndexScanDesc scan, TIDBitmap *tbm)
 void
 hippoendscan(IndexScanDesc scan)
 {
-	elog(LOG, "hippoendscan: unimplemented");
+	ereport(DEBUG1,(errmsg("[hippoendscan] do nothing")));
 }
 
 void
 hippo_redo(XLogReaderState *record)
 {
-	elog(LOG, "hippo_redo: unimplemented");
+	ereport(DEBUG1,(errmsg("[hippo_redo] do nothing")));
 }
 /*
  * Re-initialize state for a HIPPO index scan
