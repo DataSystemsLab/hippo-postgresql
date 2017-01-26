@@ -4,7 +4,7 @@
  *	  per-process shared memory data structures
  *
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/storage/proc.h
@@ -84,7 +84,7 @@ struct PGPROC
 {
 	/* proc->links MUST BE FIRST IN STRUCT (see ProcSleep,ProcWakeup,etc) */
 	SHM_QUEUE	links;			/* list link if process is in a list */
-	PGPROC	  **procgloballist;	/* procglobal list that owns this PGPROC */
+	PGPROC	  **procgloballist; /* procglobal list that owns this PGPROC */
 
 	PGSemaphoreData sem;		/* ONE semaphore to sleep on */
 	int			waitStatus;		/* STATUS_WAITING, STATUS_OK or STATUS_ERROR */
@@ -142,11 +142,21 @@ struct PGPROC
 	struct XidCache subxids;	/* cache for subtransaction XIDs */
 
 	/* Support for group XID clearing. */
-	volatile pg_atomic_uint32	nextClearXidElem;
-	TransactionId	backendLatestXid;
+	/* true, if member of ProcArray group waiting for XID clear */
+	bool		procArrayGroupMember;
+	/* next ProcArray group member waiting for XID clear */
+	pg_atomic_uint32 procArrayGroupNext;
 
-	/* Per-backend LWLock.  Protects fields below. */
-	LWLock	   *backendLock;	/* protects the fields below */
+	/*
+	 * latest transaction id among the transaction's main XID and
+	 * subtransactions
+	 */
+	TransactionId procArrayGroupMemberXid;
+
+	uint32		wait_event_info;	/* proc's wait information */
+
+	/* Per-backend LWLock.  Protects fields below (but not group fields). */
+	LWLock		backendLock;
 
 	/* Lock manager data, recording fast-path locks taken by this backend. */
 	uint64		fpLockBits;		/* lock modes held for each fast-path slot */
@@ -154,6 +164,14 @@ struct PGPROC
 	bool		fpVXIDLock;		/* are we holding a fast-path VXID lock? */
 	LocalTransactionId fpLocalTransactionId;	/* lxid for fast-path VXID
 												 * lock */
+
+	/*
+	 * Support for lock groups.  Use LockHashPartitionLockByProc on the group
+	 * leader to get the LWLock protecting these fields.
+	 */
+	PGPROC	   *lockGroupLeader;	/* lock group leader, if I'm a member */
+	dlist_head	lockGroupMembers;		/* list of members, if I'm a leader */
+	dlist_node	lockGroupLink;	/* my member link, if I'm a member */
 };
 
 /* NOTE: "typedef struct PGPROC PGPROC" appears in storage/lock.h. */
@@ -207,7 +225,7 @@ typedef struct PROC_HDR
 	/* Head of list of bgworker free PGPROC structures */
 	PGPROC	   *bgworkerFreeProcs;
 	/* First pgproc waiting for group XID clear */
-	volatile pg_atomic_uint32 nextClearXidElem;
+	pg_atomic_uint32 procArrayGroupFirst;
 	/* WALWriter process's latch */
 	Latch	   *walwriterLatch;
 	/* Checkpointer process's latch */
@@ -240,6 +258,7 @@ extern PGPROC *PreparedXactProcs;
 extern int	DeadlockTimeout;
 extern int	StatementTimeout;
 extern int	LockTimeout;
+extern int	IdleInTransactionSessionTimeout;
 extern bool log_lock_waits;
 
 
@@ -270,5 +289,8 @@ extern void LockErrorCleanup(void);
 
 extern void ProcWaitForSignal(void);
 extern void ProcSendSignal(int pid);
+
+extern void BecomeLockGroupLeader(void);
+extern bool BecomeLockGroupMember(PGPROC *leader, int pid);
 
 #endif   /* PROC_H */

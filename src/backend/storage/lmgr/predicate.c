@@ -125,7 +125,7 @@
  *		- Protects both PredXact and SerializableXidHash.
  *
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -496,8 +496,8 @@ SerializationNeededForRead(Relation relation, Snapshot snapshot)
 	 * Don't acquire locks or conflict when scanning with a special snapshot.
 	 * This excludes things like CLUSTER and REINDEX. They use the wholesale
 	 * functions TransferPredicateLocksToHeapRelation() and
-	 * CheckTableForSerializableConflictIn() to participate serialization, but
-	 * the scans involved don't need serialization.
+	 * CheckTableForSerializableConflictIn() to participate in serialization,
+	 * but the scans involved don't need serialization.
 	 */
 	if (!IsMVCCSnapshot(snapshot))
 		return false;
@@ -794,8 +794,9 @@ OldSerXidInit(void)
 	 * Set up SLRU management of the pg_serial data.
 	 */
 	OldSerXidSlruCtl->PagePrecedes = OldSerXidPagePrecedesLogically;
-	SimpleLruInit(OldSerXidSlruCtl, "OldSerXid SLRU Ctl",
-				  NUM_OLDSERXID_BUFFERS, 0, OldSerXidLock, "pg_serial");
+	SimpleLruInit(OldSerXidSlruCtl, "oldserxid",
+				  NUM_OLDSERXID_BUFFERS, 0, OldSerXidLock, "pg_serial",
+				  LWTRANCHE_OLDSERXID_BUFFERS);
 	/* Override default assumption that writes should be fsync'd */
 	OldSerXidSlruCtl->do_fsync = false;
 
@@ -3217,21 +3218,20 @@ ReleasePredicateLocks(bool isCommit)
 		return;
 	}
 
+	LWLockAcquire(SerializableXactHashLock, LW_EXCLUSIVE);
+
 	Assert(!isCommit || SxactIsPrepared(MySerializableXact));
 	Assert(!isCommit || !SxactIsDoomed(MySerializableXact));
 	Assert(!SxactIsCommitted(MySerializableXact));
 	Assert(!SxactIsRolledBack(MySerializableXact));
 
 	/* may not be serializable during COMMIT/ROLLBACK PREPARED */
-	if (MySerializableXact->pid != 0)
-		Assert(IsolationIsSerializable());
+	Assert(MySerializableXact->pid == 0 || IsolationIsSerializable());
 
 	/* We'd better not already be on the cleanup list. */
 	Assert(!SxactIsOnFinishedList(MySerializableXact));
 
 	topLevelIsDeclaredReadOnly = SxactIsReadOnly(MySerializableXact);
-
-	LWLockAcquire(SerializableXactHashLock, LW_EXCLUSIVE);
 
 	/*
 	 * We don't hold XidGenLock lock here, assuming that TransactionId is
@@ -4369,7 +4369,7 @@ CheckTableForSerializableConflictIn(Relation relation)
 	LWLockAcquire(SerializablePredicateLockListLock, LW_EXCLUSIVE);
 	for (i = 0; i < NUM_PREDICATELOCK_PARTITIONS; i++)
 		LWLockAcquire(PredicateLockHashPartitionLockByIndex(i), LW_SHARED);
-	LWLockAcquire(SerializableXactHashLock, LW_SHARED);
+	LWLockAcquire(SerializableXactHashLock, LW_EXCLUSIVE);
 
 	/* Scan through target list */
 	hash_seq_init(&seqstat, PredicateLockTargetHash);

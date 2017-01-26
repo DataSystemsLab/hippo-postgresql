@@ -92,7 +92,7 @@
  * heap's TOAST table will go through the normal bufmgr.
  *
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994-5, Regents of the University of California
  *
  * IDENTIFICATION
@@ -258,9 +258,7 @@ begin_heap_rewrite(Relation old_heap, Relation new_heap, TransactionId oldest_xm
 	 */
 	rw_cxt = AllocSetContextCreate(CurrentMemoryContext,
 								   "Table rewrite",
-								   ALLOCSET_DEFAULT_MINSIZE,
-								   ALLOCSET_DEFAULT_INITSIZE,
-								   ALLOCSET_DEFAULT_MAXSIZE);
+								   ALLOCSET_DEFAULT_SIZES);
 	old_cxt = MemoryContextSwitchTo(rw_cxt);
 
 	/* Create and fill in the state struct */
@@ -763,9 +761,9 @@ raw_heap_insert(RewriteState state, HeapTuple tup)
  *
  * Crash-Safety: This module diverts from the usual patterns of doing WAL
  * since it cannot rely on checkpoint flushing out all buffers and thus
- * waiting for exlusive locks on buffers. Usually the XLogInsert() covering
+ * waiting for exclusive locks on buffers. Usually the XLogInsert() covering
  * buffer modifications is performed while the buffer(s) that are being
- * modified are exlusively locked guaranteeing that both the WAL record and
+ * modified are exclusively locked guaranteeing that both the WAL record and
  * the modified heap are on either side of the checkpoint. But since the
  * mapping files we log aren't in shared_buffers that interlock doesn't work.
  *

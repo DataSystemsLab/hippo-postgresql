@@ -1,0 +1,19 @@
+#0  0x000000000046bfbd in hippobuild (heap=<error reading variable: Cannot access memory at address 0x7ffc19b50d58>, index=<error reading variable: Cannot access memory at address 0x7ffc19b50d50>, indexInfo=<error reading variable: Cannot access memory at address 0x7ffc19b50d48>) at hippo.c:204
+#1  0x000000000055d1c9 in index_build (heapRelation=0x7f0f3bdfea88, indexRelation=0x7f0f3be002b0, indexInfo=0x2e1d180, isprimary=0 '\000', isreindex=0 '\000') at index.c:2021
+#2  0x000000000055beda in index_create (heapRelation=0x7f0f3bdfea88, indexRelationName=0x2ec2378 "hippo_idx", indexRelationId=20695, relFileNode=0, indexInfo=0x2e1d180, indexColNames=0x2ec0370, accessMethodObjectId=9000, tableSpaceId=0, collationObjectId=0x2ec0938, classObjectId=0x2ec0958, 
+    coloptions=0x2ec0978, reloptions=49030800, isprimary=0 '\000', isconstraint=0 '\000', deferrable=0 '\000', initdeferred=0 '\000', allow_system_table_mods=0 '\000', skip_build=0 '\000', concurrent=0 '\000', is_internal=0 '\000', if_not_exists=0 '\000') at index.c:1099
+#3  0x0000000000632d7a in DefineIndex (relationId=12503, stmt=0x2e1d298, indexRelationId=0, is_alter_table=0 '\000', check_rights=1 '\001', skip_build=0 '\000', quiet=0 '\000') at indexcmds.c:651
+#4  0x000000000083660e in ProcessUtilitySlow (parsetree=0x2e7ba00, queryString=0x2e7acc8 "create index hippo_idx on hippo_tbl using hippo(id2) with (density=20);\n", context=PROCESS_UTILITY_TOPLEVEL, params=0x0, dest=0xe68c60 <debugtupDR>, completionTag=0x7ffc613bf280 "") at utility.c:1274
+#5  0x0000000000835a98 in standard_ProcessUtility (parsetree=0x2e7ba00, queryString=0x2e7acc8 "create index hippo_idx on hippo_tbl using hippo(id2) with (density=20);\n", context=PROCESS_UTILITY_TOPLEVEL, params=0x0, dest=0xe68c60 <debugtupDR>, completionTag=0x7ffc613bf280 "") at utility.c:907
+#6  0x0000000000834b71 in ProcessUtility (parsetree=0x2e7ba00, queryString=0x2e7acc8 "create index hippo_idx on hippo_tbl using hippo(id2) with (density=20);\n", context=PROCESS_UTILITY_TOPLEVEL, params=0x0, dest=0xe68c60 <debugtupDR>, completionTag=0x7ffc613bf280 "") at utility.c:336
+#7  0x0000000000833c1b in PortalRunUtility (portal=0x2eba198, utilityStmt=0x2e7ba00, isTopLevel=1 '\001', setHoldSnapshot=0 '\000', dest=0xe68c60 <debugtupDR>, completionTag=0x7ffc613bf280 "") at pquery.c:1193
+#8  0x0000000000833e2e in PortalRunMulti (portal=0x2eba198, isTopLevel=1 '\001', setHoldSnapshot=0 '\000', dest=0xe68c60 <debugtupDR>, altdest=0xe68c60 <debugtupDR>, completionTag=0x7ffc613bf280 "") at pquery.c:1342
+#9  0x000000000083332f in PortalRun (portal=0x2eba198, count=9223372036854775807, isTopLevel=1 '\001', dest=0xe68c60 <debugtupDR>, altdest=0xe68c60 <debugtupDR>, completionTag=0x7ffc613bf280 "") at pquery.c:815
+#10 0x000000000082d05b in exec_simple_query (query_string=0x2e7acc8 "create index hippo_idx on hippo_tbl using hippo(id2) with (density=20);\n") at postgres.c:1094
+#11 0x0000000000831479 in PostgresMain (argc=6, argv=0x2df5a70, dbname=0x2dfd3c0 "postgres", username=0x2dfd3c0 "postgres") at postgres.c:4070
+#12 0x00000000006e7832 in main (argc=6, argv=0x2df5a70) at main.c:224
+Continuing.
+
+Program terminated with signal SIGSEGV, Segmentation fault.
+The program no longer exists.
+quit

@@ -5,7 +5,7 @@
  *	  along with the relation's initial contents.
  *
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/catalog/pg_opfamily.h
@@ -182,9 +182,8 @@ DATA(insert OID = 4081 (	3580	uuid_minmax_ops			PGNSP PGUID ));
 DATA(insert OID = 4103 (	3580	range_inclusion_ops		PGNSP PGUID ));
 DATA(insert OID = 4082 (	3580	pg_lsn_minmax_ops		PGNSP PGUID ));
 DATA(insert OID = 4104 (	3580	box_inclusion_ops		PGNSP PGUID ));
+DATA(insert OID = 5000 (	4000	box_ops		PGNSP PGUID ));
 
-
-/*HIPPO*/
-DATA(insert OID = 920411 (	891027	int_grid_ops		PGNSP PGUID ));
+DATA(insert OID = 9001 (	9000	int_hippo_ops		PGNSP PGUID ));
 
 #endif   /* PG_OPFAMILY_H */

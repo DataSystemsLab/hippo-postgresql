@@ -86,7 +86,7 @@
  *	when using the SysV semaphore code.
  *
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *	  src/include/storage/s_lock.h
@@ -266,6 +266,10 @@ spin_delay(void)
  * any explicit statement on that in the gcc manual.  In Intel's compiler,
  * the -m[no-]serialize-volatile option controls that, and testing shows that
  * it is enabled by default.
+ *
+ * While icc accepts gcc asm blocks on x86[_64], this is not true on ia64
+ * (at least not in icc versions before 12.x).  So we have to carry a separate
+ * compiler-intrinsic-based implementation for it.
  */
 #define HAS_TEST_AND_SET
 
@@ -302,6 +306,10 @@ tas(volatile slock_t *lock)
 
 	return ret;
 }
+
+/* icc can't use the regular gcc S_UNLOCK() macro either in this case */
+#define S_UNLOCK(lock)	\
+	do { __memory_barrier(); *(lock) = 0; } while (0)
 
 #endif /* __INTEL_COMPILER */
 #endif	 /* __ia64__ || __ia64 */
@@ -447,6 +455,12 @@ typedef unsigned int slock_t;
  * NOTE: per the Enhanced PowerPC Architecture manual, v1.0 dated 7-May-2002,
  * an isync is a sufficient synchronization barrier after a lwarx/stwcx loop.
  * On newer machines, we can use lwsync instead for better performance.
+ *
+ * Ordinarily, we'd code the branches here using GNU-style local symbols, that
+ * is "1f" referencing "1:" and so on.  But some people run gcc on AIX with
+ * IBM's assembler as backend, and IBM's assembler doesn't do local symbols.
+ * So hand-code the branch offsets; fortunately, all PPC instructions are
+ * exactly 4 bytes each, so it's not too hard to count.
  */
 static __inline__ int
 tas(volatile slock_t *lock)
@@ -461,20 +475,18 @@ tas(volatile slock_t *lock)
 "	lwarx   %0,0,%3		\n"
 #endif
 "	cmpwi   %0,0		\n"
-"	bne     1f			\n"
+"	bne     $+16		\n"		/* branch to li %1,1 */
 "	addi    %0,%0,1		\n"
 "	stwcx.  %0,0,%3		\n"
-"	beq     2f         	\n"
-"1:	li      %1,1		\n"
-"	b		3f			\n"
-"2:						\n"
+"	beq     $+12		\n"		/* branch to lwsync/isync */
+"	li      %1,1		\n"
+"	b       $+12		\n"		/* branch to end of asm sequence */
 #ifdef USE_PPC_LWSYNC
 "	lwsync				\n"
 #else
 "	isync				\n"
 #endif
 "	li      %1,0		\n"
-"3:						\n"
 
 :	"=&r"(_t), "=r"(_res), "+m"(*lock)
 :	"r"(lock)
@@ -667,21 +679,18 @@ typedef unsigned char slock_t;
 #endif
 
 /*
- * Note that this implementation is unsafe for any platform that can speculate
+ * Default implementation of S_UNLOCK() for gcc/icc.
+ *
+ * Note that this implementation is unsafe for any platform that can reorder
  * a memory access (either load or store) after a following store.  That
- * happens not to be possible x86 and most legacy architectures (some are
+ * happens not to be possible on x86 and most legacy architectures (some are
  * single-processor!), but many modern systems have weaker memory ordering.
- * Those that do must define their own version S_UNLOCK() rather than relying
- * on this one.
+ * Those that do must define their own version of S_UNLOCK() rather than
+ * relying on this one.
  */
 #if !defined(S_UNLOCK)
-#if defined(__INTEL_COMPILER)
-#define S_UNLOCK(lock)	\
-	do { __memory_barrier(); *(lock) = 0; } while (0)
-#else
 #define S_UNLOCK(lock)	\
 	do { __asm__ __volatile__("" : : : "memory");  *(lock) = 0; } while (0)
-#endif
 #endif
 
 #endif	/* defined(__GNUC__) || defined(__INTEL_COMPILER) */
@@ -707,7 +716,7 @@ typedef unsigned char slock_t;
 asm int
 tas(volatile slock_t *s_lock)
 {
-/* UNIVEL wants %mem in column 1, so we don't pg_indent this file */
+/* UNIVEL wants %mem in column 1, so we don't pgindent this file */
 %mem s_lock
 	pushl %ebx
 	movl s_lock, %ebx
@@ -789,7 +798,7 @@ tas(volatile slock_t *lock)
 
 #if defined(__hpux) && defined(__ia64) && !defined(__GNUC__)
 /*
- * HP-UX on Itanium, non-gcc compiler
+ * HP-UX on Itanium, non-gcc/icc compiler
  *
  * We assume that the compiler enforces strict ordering of loads/stores on
  * volatile data (see comments on the gcc-version earlier in this file).
@@ -812,7 +821,7 @@ typedef unsigned int slock_t;
 #define S_UNLOCK(lock)	\
 	do { _Asm_mf(); (*(lock)) = 0; } while (0)
 
-#endif	/* HPUX on IA64, non gcc */
+#endif	/* HPUX on IA64, non gcc/icc */
 
 #if defined(_AIX)	/* AIX */
 /*
@@ -921,7 +930,7 @@ extern int	tas_sema(volatile slock_t *lock);
 
 #if !defined(S_LOCK)
 #define S_LOCK(lock) \
-	(TAS(lock) ? s_lock((lock), __FILE__, __LINE__) : 0)
+	(TAS(lock) ? s_lock((lock), __FILE__, __LINE__, PG_FUNCNAME_MACRO) : 0)
 #endif	 /* S_LOCK */
 
 #if !defined(S_LOCK_FREE)
@@ -931,7 +940,7 @@ extern int	tas_sema(volatile slock_t *lock);
 #if !defined(S_UNLOCK)
 /*
  * Our default implementation of S_UNLOCK is essentially *(lock) = 0.  This
- * is unsafe if the platform can speculate a memory access (either load or
+ * is unsafe if the platform can reorder a memory access (either load or
  * store) after a following store; platforms where this is possible must
  * define their own S_UNLOCK.  But CPU reordering is not the only concern:
  * if we simply defined S_UNLOCK() as an inline macro, the compiler might
@@ -974,12 +983,42 @@ extern slock_t dummy_spinlock;
 /*
  * Platform-independent out-of-line support routines
  */
-extern int s_lock(volatile slock_t *lock, const char *file, int line);
+extern int s_lock(volatile slock_t *lock, const char *file, int line, const char *func);
 
 /* Support for dynamic adjustment of spins_per_delay */
 #define DEFAULT_SPINS_PER_DELAY  100
 
 extern void set_spins_per_delay(int shared_spins_per_delay);
 extern int	update_spins_per_delay(int shared_spins_per_delay);
+
+/*
+ * Support for spin delay which is useful in various places where
+ * spinlock-like procedures take place.
+ */
+typedef struct
+{
+	int			spins;
+	int			delays;
+	int			cur_delay;
+	const char *file;
+	int			line;
+	const char *func;
+} SpinDelayStatus;
+
+static inline void
+init_spin_delay(SpinDelayStatus *status,
+				const char *file, int line, const char *func)
+{
+	status->spins = 0;
+	status->delays = 0;
+	status->cur_delay = 0;
+	status->file = file;
+	status->line = line;
+	status->func = func;
+}
+
+#define init_local_spin_delay(status) init_spin_delay(status, __FILE__, __LINE__, PG_FUNCNAME_MACRO)
+void perform_spin_delay(SpinDelayStatus *status);
+void finish_spin_delay(SpinDelayStatus *status);
 
 #endif	 /* S_LOCK_H */

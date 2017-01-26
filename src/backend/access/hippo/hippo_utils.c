@@ -104,8 +104,9 @@ hippo_getinsertbuffer(Relation irel)
 /*
  * Form a serialized index tuple. This index tuple will be put on disk right away.
  */
-IndexTupleData * hippo_form_indextuple(HippoTupleLong *memTuple, Size *memlen, int histogramBoundsNum)
+IndexTupleData * hippo_form_indextuple(HippoTupleLong *memTuple, Size *memlen)
 {
+	ereport(DEBUG1,(errmsg("[hippo_form_indextuple] start")));
 	char	   *ptr,
 			   *ret,
 			   *diskGridSet,
@@ -119,25 +120,54 @@ IndexTupleData * hippo_form_indextuple(HippoTupleLong *memTuple, Size *memlen, i
 	*memlen = 0;
 	deleteFlag=memTuple->deleteFlag;
 	compressedBitset=bitmap_compress(memTuple->originalBitset);
+	ereport(DEBUG1,(errmsg("[hippo_form_indextuple][compressed original bitmap partial histogram]")));
 	bitmapLength=estimate_ewah_size(compressedBitset);
+	ereport(DEBUG1,(errmsg("[hippo_form_indextuple][estimated memory space]")));
 	*memlen=sizeof((memTuple->hp_PageStart)&INDEX_SIZE_MASK)+sizeof((memTuple->hp_PageNum)&INDEX_SIZE_MASK)+sizeof(deleteFlag)+bitmapLength;
 	ptr = ret = palloc(*memlen);
+	ereport(DEBUG1,(errmsg("[hippo_form_indextuple][Allocated memory space]")));
 	memcpy(ptr,&(memTuple->hp_PageStart),sizeof((memTuple->hp_PageStart)&INDEX_SIZE_MASK));
 	ptr+=sizeof((memTuple->hp_PageStart)&INDEX_SIZE_MASK);
 	memcpy(ptr,&(memTuple->hp_PageNum),sizeof((memTuple->hp_PageNum)&INDEX_SIZE_MASK));
 	ptr+=sizeof((memTuple->hp_PageNum)&INDEX_SIZE_MASK);
 	memcpy(ptr,&(deleteFlag),sizeof((deleteFlag)));
 	ptr+=sizeof((deleteFlag));
+	ereport(DEBUG1,(errmsg("[hippo_form_indextuple][Allocated page range]")));
 	ewah_serialize(compressedBitset,ptr);
+	ereport(DEBUG1,(errmsg("[hippo_form_indextuple][Allocated compressed bitmap]")));
 	ewah_free(compressedBitset);
+	ereport(DEBUG1,(errmsg("[hippo_form_indextuple] stop")));
 	return (IndexTupleData *) ret;
 }
 
+int calculate_disk_indextuple_size(HippoTupleLong *memTuple)
+{
+	ereport(DEBUG1,(errmsg("[hippo_form_indextuple] start")));
+	char	   *ptr,
+			   *ret,
+			   *diskGridSet,
+			   *diskGridSetAccumulator;
+	struct ewah_bitmap *compressedBitset;
+	int serializedSize=0;
+	/*
+	 * The deleteFlag is a flag for distinguishing whether this GSIN tuple is "dirty" or not. And also it is also used to mark whether this is the last index tuple. It is used in bulkdelete.
+	 */
+	int16 deleteFlag=0;
+	deleteFlag=memTuple->deleteFlag;
+	compressedBitset=bitmap_compress(memTuple->originalBitset);
+	ereport(DEBUG1,(errmsg("[calculate_disk_indextuple_size][compressed original bitmap partial histogram]")));
+	serializedSize+=estimate_ewah_size(compressedBitset);
+	ereport(DEBUG1,(errmsg("[calculate_disk_indextuple_size][estimated bitmap space]")));
+	serializedSize+=sizeof((memTuple->hp_PageStart)&INDEX_SIZE_MASK)+sizeof((memTuple->hp_PageNum)&INDEX_SIZE_MASK)+sizeof(deleteFlag);
+	ereport(DEBUG1,(errmsg("[calculate_disk_indextuple_size] stop")));
+	return serializedSize;
+}
 /*
  * Create sorted list and put it on disk
  */
 void SortedListInialize(Relation index,HippoBuildState *hippoBuildState,BlockNumber startBlock)
 {
+	ereport(DEBUG1,(errmsg("[SortedListInialize] start")));
 	Size itemSize;
 	BlockNumber maxBlock,currentBlock;
 	Offset off;
@@ -151,6 +181,7 @@ void SortedListInialize(Relation index,HippoBuildState *hippoBuildState,BlockNum
 	for(currentBlock=startBlock;currentBlock<=maxBlock+startBlock;currentBlock++){
 		SortedListPerIndexPage(hippoBuildState,currentBlock,maxBlock,remainder,startBlock);
 	}
+	ereport(DEBUG1,(errmsg("[SortedListInialize] stop")));
 }
 /*
  * This function puts the sorted list on one disk page.
@@ -224,12 +255,13 @@ void SortedListPerIndexPage(HippoBuildState *hippoBuildState,BlockNumber current
 OffsetNumber
 hippo_doinsert(HippoBuildState *buildstate)
 {
+	ereport(DEBUG2,(errmsg("[hippo_doinsert] start")));
 	Page		page;
 	OffsetNumber off,maxoff;
 	Buffer buffer=buildstate->hp_currentInsertBuf;
 	HippoTupleLong *memTuple=build_real_hippo_tuplelong(buildstate);
 	Size itemsz;
-	char *data=(char *)hippo_form_indextuple(memTuple,&itemsz,buildstate->histogramBoundsNum);
+	char *data=(char *)hippo_form_indextuple(memTuple,&itemsz);
 	/*
 	 * Acquire a lock on buffer supplied by caller, if any.  If it doesn't have
 	 * enough space, unpin it to obtain a new one below.
@@ -285,6 +317,7 @@ hippo_doinsert(HippoBuildState *buildstate)
 	 * Free serialized tuple
 	 */
 	pfree((char *)data);
+	ereport(DEBUG2,(errmsg("[hippo_doinsert] stop")));
 	return off;
 }
 
@@ -316,6 +349,7 @@ void serializeSortedListTuple(HippoItemPointer *hippoItemPointer,char *diskTuple
  */
 void put_histogram(Relation idxrel, BlockNumber startBlock, int histogramBoundsNum,Datum *histogramBounds)
 {
+	ereport(DEBUG1,(errmsg("[put_histogram] start")));
 	Buffer buffer;
 	Page page;
 	int totalNumber=histogramBoundsNum;
@@ -346,8 +380,8 @@ void put_histogram(Relation idxrel, BlockNumber startBlock, int histogramBoundsN
 	MarkBufferDirty(buffer);
 	END_CRIT_SECTION();
 	UnlockReleaseBuffer(buffer);
+	ereport(DEBUG1,(errmsg("[put_histogram] stop")));
 	}
-
 }
 
 /*
@@ -355,6 +389,7 @@ void put_histogram(Relation idxrel, BlockNumber startBlock, int histogramBoundsN
  */
 int get_histogram_totalNumber(Relation idxrel,BlockNumber startBlock)
 {
+	ereport(DEBUG1,(errmsg("[get_histogram_totalNumber] start")));
 	Buffer buffer;
 	Page page;
 	char* diskTuple;
@@ -365,6 +400,7 @@ int get_histogram_totalNumber(Relation idxrel,BlockNumber startBlock)
 	diskTuple=(Item)PageGetItem(page,PageGetItemId(page,1));
 	memcpy(&totalNumber,diskTuple,sizeof(int));
 	UnlockReleaseBuffer(buffer);
+	ereport(DEBUG1,(errmsg("[get_histogram_totalNumber] stop")));
 	return totalNumber;
 }
 
@@ -373,6 +409,7 @@ int get_histogram_totalNumber(Relation idxrel,BlockNumber startBlock)
  */
 int get_histogram(Relation idxrel,BlockNumber startblock,int histogramPosition)
 {
+	ereport(DEBUG1,(errmsg("[get_histogram] start")));
 	Buffer buffer;
 	Page page;
 	char* diskTuple;
@@ -389,6 +426,7 @@ int get_histogram(Relation idxrel,BlockNumber startblock,int histogramPosition)
 	diskTuple=(Item)PageGetItem(page,PageGetItemId(page,off));
 	memcpy(&value,diskTuple,sizeof(int));
 	UnlockReleaseBuffer(buffer);
+	ereport(DEBUG1,(errmsg("[get_histogram] stop")));
 	return value;
 }
 
@@ -408,48 +446,62 @@ void hippoinit_special(Buffer b)
  */
 void binary_search_histogram_ondisk(searchResult *histogramMatchData, Relation idxrel, Datum value,BlockNumber startBlock,int totalNumber)
 {
+
+	ereport(DEBUG1,(errmsg("[binary_search_histogram_ondisk] start")));
 	int histogramBoundsNum=totalNumber;
 	int min=0,max=histogramBoundsNum-1,equalFlag,equalPosition,guess;
-						histogramMatchData->index=-9999;
-						histogramMatchData->numberOfGuesses=0;
-						equalFlag=-1;
+	histogramMatchData->index=-9999;
+	histogramMatchData->numberOfGuesses=0;
+	equalFlag=-1;
 	int maxHistogramBound=get_histogram(idxrel,startBlock,max);
 	int minHistogramBound=get_histogram(idxrel,startBlock,min);
-						if(DatumGetInt32(value)>maxHistogramBound)
-						{
-							histogramMatchData->index=HISTOGRAM_OUT_OF_BOUNDARY;
-							return;
-						}
-						if(DatumGetInt32(value)<minHistogramBound)
-						{
-							histogramMatchData->index=HISTOGRAM_OUT_OF_BOUNDARY;
-							return;
-						}
-						while (min<=max) {
+	if(DatumGetInt32(value)>maxHistogramBound)
+	{
+		/*
+		 * Got an overflow data. It is larger than the upper bound. Total number + 1 is the id.
+		 */
+		histogramMatchData->index=histogramBoundsNum+1;
+		return;
+	}
+	if(DatumGetInt32(value)<minHistogramBound)
+	{
+		/*
+		 * Got an overflow data. It is larger than the upper bound. Total number is the id.
+		 */
+		histogramMatchData->index=histogramBoundsNum;
+		return;
+	}
+	while (min<=max) {
 
-						        guess = (min + max) / 2;
-						        histogramMatchData->numberOfGuesses++;
-						        int result=get_histogram(idxrel,startBlock,guess);
+		guess = (min + max) / 2;
+		histogramMatchData->numberOfGuesses++;
+		int result=get_histogram(idxrel,startBlock,guess);
 
-						        if(result>DatumGetInt32(value))
-						        {
-						        	max=guess-1;
-						        }
-						        else
-						        {
-						        	min=guess+1;
-						        }
+		if(result>DatumGetInt32(value))
+		{
+			max=guess-1;
+		}
+		else
+		{
+			min=guess+1;
+		}
 
-						    }
-						if(min==0)
-						{
-							histogramMatchData->index=0;
-						}
-						else
-						{
-						histogramMatchData->index=min-1;
-						}
-						return;
+	}
+	if(min==0)
+	{
+		histogramMatchData->index=0;
+	}
+	else
+	{
+		histogramMatchData->index=min-1;
+	}
+	if(histogramMatchData->index<0)
+	{
+		ereport(DEBUG1,(errmsg("[binary_search_histogram_ondisk] Got an abnormal histogram index")));
+
+	}
+	ereport(DEBUG1,(errmsg("[binary_search_histogram_ondisk] stop")));
+	return;
 }
 
 /*
@@ -457,43 +509,65 @@ void binary_search_histogram_ondisk(searchResult *histogramMatchData, Relation i
  */
 void binary_search_histogram(searchResult *histogramMatchData,int histogramBoundsNum,Datum *histogramBounds, Datum value)
 {
+	ereport(DEBUG1,(errmsg("[binary_search_histogram] start")));
 	int min=0,max=histogramBoundsNum-1,equalFlag,equalPosition,guess;
-						histogramMatchData->index=-9999;
-						histogramMatchData->numberOfGuesses=0;
-						equalFlag=-1;
-				        if((int)histogramBounds[min]==DatumGetInt32(value))
-				        {
-				        	equalFlag=min;
+	histogramMatchData->index=-9999;
+	histogramMatchData->numberOfGuesses=0;
+	equalFlag=-1;
+	ereport(DEBUG1,(errmsg("[binary_search_histogram] Initialized necessary variables")));
+	if((int)histogramBounds[min]>DatumGetInt32(value))
+	{
+		/*
+		 * Got an overflow data. It is smaller than the lower bound. Total number is the id.
+		 */
+		histogramMatchData->index=max;
+		ereport(DEBUG1,(errmsg("[binary_search_histogram] histogramBounds[min] is %d value is %d", (int)histogramBounds[min]),DatumGetInt32(value)));
+		ereport(DEBUG1,(errmsg("[binary_search_histogram] stop")));
+		return;
+	}
+	if((int)histogramBounds[max]<DatumGetInt32(value))
+	{
+		/*
+		 * Got an overflow data. It is larger than the upper bound. Total number + 1 is the id.
+		 */
+		histogramMatchData->index=max+2;
+		ereport(DEBUG1,(errmsg("[binary_search_histogram] histogramBounds[max] is %d value is %d", (int)histogramBounds[max],DatumGetInt32(value))));
+		ereport(DEBUG1,(errmsg("[binary_search_histogram] stop")));
+		return;
+	}
+	if((int)histogramBounds[min]==DatumGetInt32(value))
+	{
+		equalFlag=min;
 
-				        }
-				        if((int)histogramBounds[max]==DatumGetInt32(value))
-				        {
-				        	equalFlag=max;
+	}
+	if((int)histogramBounds[max]==DatumGetInt32(value))
+	{
+		equalFlag=max;
+	}
+	ereport(DEBUG1,(errmsg("[binary_search_histogram] Checked corner case")));
+	while (min<=max) {
 
-				        }
+		guess = (min + max) / 2;
+		histogramMatchData->numberOfGuesses++;
+		if((int)histogramBounds[guess]>DatumGetInt32(value))
+		{
+			max=guess-1;
+		}
+		else
+		{
+			min=guess+1;
+		}
 
-						while (min<=max) {
-
-						        guess = (min + max) / 2;
-						        histogramMatchData->numberOfGuesses++;
-						        if((int)histogramBounds[guess]>DatumGetInt32(value))
-						        {
-						        	max=guess-1;
-						        }
-						        else
-						        {
-						        	min=guess+1;
-						        }
-
-						    }
-						if(min==0)
-						{
-							histogramMatchData->index=0;
-						}
-						else
-						{
-						histogramMatchData->index=min-1;
-						}
+	}
+	if(min==0)
+	{
+		histogramMatchData->index=0;
+	}
+	else
+	{
+		histogramMatchData->index=min-1;
+	}
+	ereport(DEBUG1,(errmsg("[binary_search_histogram] stop")));
 }
 
 
@@ -553,6 +627,7 @@ void get_sorted_list_pages(Relation idxrel,BlockNumber *sorted_list_pages,BlockN
 	Page page=BufferGetPage(buffer);
 	char* diskTuple;
 	LockBuffer(buffer,BUFFER_LOCK_SHARE);
+	START_CRIT_SECTION();
 	diskTuple=(Item)PageGetItem(page,PageGetItemId(page,2));
 	END_CRIT_SECTION();
 	UnlockReleaseBuffer(buffer);
@@ -777,6 +852,7 @@ void hippo_form_memtuple(HippoTupleLong *hippoTupleLong,IndexTuple diskTuple,Siz
  */
 void hippoGetNextIndexTuple(IndexScanDesc scan)
 {
+	ereport(DEBUG1,(errmsg("[hippogetbitmap][hippoGetNextIndexTuple] start")));
 	Buffer		buffer;
 	Page		page;
 	Item diskTuple;
@@ -821,5 +897,6 @@ void hippoGetNextIndexTuple(IndexScanDesc scan)
 	}
 	}
 	scan->opaque=scanstate;
+	ereport(DEBUG1,(errmsg("[hippogetbitmap][hippoGetNextIndexTuple] stop")));
 }
 

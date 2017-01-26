@@ -623,7 +623,8 @@ can be used to examine the information stored in free space maps.
 <para>
 Each heap relation has a Visibility Map
 (VM) to keep track of which pages contain only tuples that are known to be
-visible to all active transactions. It's stored
+visible to all active transactions; it also keeps track of which pages contain
+only unfrozen tuples.  It's stored
 alongside the main relation data in a separate relation fork, named after the
 filenode number of the relation, plus a <literal>_vm</> suffix. For example,
 if the filenode of a relation is 12345, the VM is stored in a file called
@@ -632,11 +633,14 @@ Note that indexes do not have VMs.
 </para>
 
 <para>
-The visibility map simply stores one bit per heap page. A set bit means
-that all tuples on the page are known to be visible to all transactions.
-This means that the page does not contain any tuples that need to be vacuumed.
-This information can also be used by <firstterm>index-only scans</> to answer
-queries using only the index tuple.
+The visibility map stores two bits per heap page.  The first bit, if set,
+indicates that the page is all-visible, or in other words that the page does
+not contain any tuples that need to be vacuumed.
+This information can also be used
+by <link linkend="indexes-index-only-scans"><firstterm>index-only
+scans</></link> to answer queries using only the index tuple.
+The second bit, if set, means that all tuples on the page have been frozen.
+That means that even an anti-wraparound vacuum need not revisit the page.
 </para>
 
 <para>
@@ -644,6 +648,11 @@ The map is conservative in the sense that we make sure that whenever a bit is
 set, we know the condition is true, but if a bit is not set, it might or
 might not be true. Visibility map bits are only set by vacuum, but are
 cleared by any data-modifying operations on a page.
+</para>
+
+<para>
+The <xref linkend="pgvisibility"> module can be used to examine the
+information stored in the visibility map.
 </para>
 
 </sect1>
@@ -758,18 +767,18 @@ data. Empty in ordinary tables.</entry>
  <para>
 
   The first 24 bytes of each page consists of a page header
-  (PageHeaderData). Its format is detailed in <xref
-  linkend="pageheaderdata-table">. The first two fields track the most
-  recent WAL entry related to this page. Next is a 2-byte field
-  containing flag bits. This is followed by three 2-byte integer fields
-  (<structfield>pd_lower</structfield>, <structfield>pd_upper</structfield>,
-  and <structfield>pd_special</structfield>). These contain byte offsets
-  from the page start to the start
-  of unallocated space, to the end of unallocated space, and to the start of
-  the special space.
-  The next 2 bytes of the page header,
-  <structfield>pd_pagesize_version</structfield>, store both the page size
-  and a version indicator.  Beginning with
+  (<structname>PageHeaderData</>). Its format is detailed in <xref
+  linkend="pageheaderdata-table">. The first field tracks the most
+  recent WAL entry related to this page. The second field contains
+  the page checksum if <xref linkend="app-initdb-data-checksums"> are
+  enabled.  Next is a 2-byte field containing flag bits. This is followed
+  by three 2-byte integer fields (<structfield>pd_lower</structfield>,
+  <structfield>pd_upper</structfield>, and
+  <structfield>pd_special</structfield>).  These contain byte offsets
+  from the page start to the start of unallocated space, to the end of
+  unallocated space, and to the start of the special space.  The next 2
+  bytes of the page header, <structfield>pd_pagesize_version</structfield>,
+  store both the page size and a version indicator.  Beginning with
   <productname>PostgreSQL</productname> 8.3 the version number is 4;
   <productname>PostgreSQL</productname> 8.1 and 8.2 used version number 3;
   <productname>PostgreSQL</productname> 8.0 used version number 2;
@@ -799,7 +808,7 @@ data. Empty in ordinary tables.</entry>
  <tbody>
   <row>
    <entry>pd_lsn</entry>
-   <entry>XLogRecPtr</entry>
+   <entry>PageXLogRecPtr</entry>
    <entry>8 bytes</entry>
    <entry>LSN: next byte after last byte of xlog record for last change
    to this page</entry>
@@ -990,7 +999,7 @@ data. Empty in ordinary tables.</entry>
 
  <para>
    All the details can be found in
-   <filename>src/include/access/htup.h</filename>.
+   <filename>src/include/access/htup_details.h</filename>.
  </para>
 
  <para>

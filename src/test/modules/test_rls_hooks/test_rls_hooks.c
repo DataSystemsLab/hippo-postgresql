@@ -3,7 +3,7 @@
  * test_rls_hooks.c
  *		Code for testing RLS hooks.
  *
- * Copyright (C) 2015, PostgreSQL Global Development Group
+ * Copyright (c) 2015-2016, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *		src/test/modules/test_rls_hooks/test_rls_hooks.c
@@ -87,7 +87,6 @@ test_rls_hooks_permissive(CmdType cmdtype, Relation relation)
 	role = ObjectIdGetDatum(ACL_ID_PUBLIC);
 
 	policy->policy_name = pstrdup("extension policy");
-	policy->policy_id = InvalidOid;
 	policy->polcmd = '*';
 	policy->roles = construct_array(&role, 1, OIDOID, sizeof(Oid), true, 'i');
 
@@ -151,7 +150,6 @@ test_rls_hooks_restrictive(CmdType cmdtype, Relation relation)
 	role = ObjectIdGetDatum(ACL_ID_PUBLIC);
 
 	policy->policy_name = pstrdup("extension policy");
-	policy->policy_id = InvalidOid;
 	policy->polcmd = '*';
 	policy->roles = construct_array(&role, 1, OIDOID, sizeof(Oid), true, 'i');
 

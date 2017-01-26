@@ -3,7 +3,7 @@
  * fe-connect.c
  *	  functions related to setting up a connection to the backend
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -391,9 +391,13 @@ pgthreadlock_t pg_g_threadlock = default_threadlock;
  * Close any physical connection to the server, and reset associated
  * state inside the connection object.  We don't release state that
  * would be needed to reconnect, though.
+ *
+ * We can always flush the output buffer, since there's no longer any hope
+ * of sending that data.  However, unprocessed input data might still be
+ * valuable, so the caller must tell us whether to flush that or not.
  */
 void
-pqDropConnection(PGconn *conn)
+pqDropConnection(PGconn *conn, bool flushInput)
 {
 	/* Drop any SSL state */
 	pqsecure_close(conn);
@@ -401,8 +405,10 @@ pqDropConnection(PGconn *conn)
 	if (conn->sock != PGINVALID_SOCKET)
 		closesocket(conn->sock);
 	conn->sock = PGINVALID_SOCKET;
-	/* Discard any unread/unsent data */
-	conn->inStart = conn->inCursor = conn->inEnd = 0;
+	/* Optionally discard any unread data */
+	if (flushInput)
+		conn->inStart = conn->inCursor = conn->inEnd = 0;
+	/* Always discard any unsent data */
 	conn->outCount = 0;
 }
 
@@ -1510,7 +1516,7 @@ connectDBStart(PGconn *conn)
 		return 1;
 
 connect_errReturn:
-	pqDropConnection(conn);
+	pqDropConnection(conn, true);
 	conn->status = CONNECTION_BAD;
 	return 0;
 }
@@ -1732,7 +1738,7 @@ keep_going:						/* We will come back to here until there is
 					{
 						if (!connectNoDelay(conn))
 						{
-							pqDropConnection(conn);
+							pqDropConnection(conn, true);
 							conn->addr_cur = addr_cur->ai_next;
 							continue;
 						}
@@ -1742,7 +1748,7 @@ keep_going:						/* We will come back to here until there is
 						appendPQExpBuffer(&conn->errorMessage,
 										  libpq_gettext("could not set socket to nonblocking mode: %s\n"),
 							SOCK_STRERROR(SOCK_ERRNO, sebuf, sizeof(sebuf)));
-						pqDropConnection(conn);
+						pqDropConnection(conn, true);
 						conn->addr_cur = addr_cur->ai_next;
 						continue;
 					}
@@ -1753,7 +1759,7 @@ keep_going:						/* We will come back to here until there is
 						appendPQExpBuffer(&conn->errorMessage,
 										  libpq_gettext("could not set socket to close-on-exec mode: %s\n"),
 							SOCK_STRERROR(SOCK_ERRNO, sebuf, sizeof(sebuf)));
-						pqDropConnection(conn);
+						pqDropConnection(conn, true);
 						conn->addr_cur = addr_cur->ai_next;
 						continue;
 					}
@@ -1800,7 +1806,7 @@ keep_going:						/* We will come back to here until there is
 
 						if (err)
 						{
-							pqDropConnection(conn);
+							pqDropConnection(conn, true);
 							conn->addr_cur = addr_cur->ai_next;
 							continue;
 						}
@@ -1887,7 +1893,7 @@ keep_going:						/* We will come back to here until there is
 					 * failure and keep going if there are more addresses.
 					 */
 					connectFailureMessage(conn, SOCK_ERRNO);
-					pqDropConnection(conn);
+					pqDropConnection(conn, true);
 
 					/*
 					 * Try the next address, if any.
@@ -1932,7 +1938,7 @@ keep_going:						/* We will come back to here until there is
 					 * error message.
 					 */
 					connectFailureMessage(conn, optval);
-					pqDropConnection(conn);
+					pqDropConnection(conn, true);
 
 					/*
 					 * If more addresses remain, keep trying, just as in the
@@ -2220,7 +2226,7 @@ keep_going:						/* We will come back to here until there is
 						/* only retry once */
 						conn->allow_ssl_try = false;
 						/* Must drop the old connection */
-						pqDropConnection(conn);
+						pqDropConnection(conn, true);
 						conn->status = CONNECTION_NEEDED;
 						goto keep_going;
 					}
@@ -2331,7 +2337,7 @@ keep_going:						/* We will come back to here until there is
 					{
 						conn->pversion = PG_PROTOCOL(2, 0);
 						/* Must drop the old connection */
-						pqDropConnection(conn);
+						pqDropConnection(conn, true);
 						conn->status = CONNECTION_NEEDED;
 						goto keep_going;
 					}
@@ -2397,7 +2403,7 @@ keep_going:						/* We will come back to here until there is
 						/* only retry once */
 						conn->wait_ssl_try = false;
 						/* Must drop the old connection */
-						pqDropConnection(conn);
+						pqDropConnection(conn, true);
 						conn->status = CONNECTION_NEEDED;
 						goto keep_going;
 					}
@@ -2413,7 +2419,7 @@ keep_going:						/* We will come back to here until there is
 						/* only retry once */
 						conn->allow_ssl_try = false;
 						/* Must drop the old connection */
-						pqDropConnection(conn);
+						pqDropConnection(conn, true);
 						conn->status = CONNECTION_NEEDED;
 						goto keep_going;
 					}
@@ -2574,7 +2580,7 @@ keep_going:						/* We will come back to here until there is
 							PQclear(res);
 							conn->send_appname = false;
 							/* Must drop the old connection */
-							pqDropConnection(conn);
+							pqDropConnection(conn, true);
 							conn->status = CONNECTION_NEEDED;
 							goto keep_going;
 						}
@@ -2782,6 +2788,7 @@ makeEmptyPGconn(void)
 	conn->client_encoding = PG_SQL_ASCII;
 	conn->std_strings = false;	/* unless server says differently */
 	conn->verbosity = PQERRORS_DEFAULT;
+	conn->show_context = PQSHOW_CONTEXT_ERRORS;
 	conn->sock = PGINVALID_SOCKET;
 	conn->auth_req_received = false;
 	conn->password_needed = false;
@@ -2970,7 +2977,7 @@ closePGconn(PGconn *conn)
 	/*
 	 * Close the connection, reset all transient state, flush I/O buffers.
 	 */
-	pqDropConnection(conn);
+	pqDropConnection(conn, true);
 	conn->status = CONNECTION_BAD;		/* Well, not really _bad_ - just
 										 * absent */
 	conn->asyncStatus = PGASYNC_IDLE;
@@ -3154,7 +3161,7 @@ PQresetPoll(PGconn *conn)
 }
 
 /*
- * PQcancelGet: get a PGcancel structure corresponding to a connection.
+ * PQgetCancel: get a PGcancel structure corresponding to a connection.
  *
  * A copy is needed to be able to cancel a running query from a different
  * thread. If the same structure is used all structure members would have
@@ -4416,7 +4423,11 @@ conninfo_parse(const char *conninfo, PQExpBuffer errorMessage,
  * of "dbname" keyword is a connection string (as indicated by
  * recognized_connection_string) then parse and process it, overriding any
  * previously processed conflicting keywords. Subsequent keywords will take
- * precedence, however.
+ * precedence, however. In-tree programs generally specify expand_dbname=true,
+ * so command-line arguments naming a database can use a connection string.
+ * Some code acquires arbitrary database names from known-literal sources like
+ * PQdb(), PQconninfoParse() and pg_database.datname.  When connecting to such
+ * a database, in-tree code first wraps the name in a connection string.
  */
 static PQconninfoOption *
 conninfo_array_parse(const char *const * keywords, const char *const * values,
@@ -5346,7 +5357,10 @@ PQhost(const PGconn *conn)
 	else
 	{
 #ifdef HAVE_UNIX_SOCKETS
-		return conn->pgunixsocket;
+		if (conn->pgunixsocket != NULL && conn->pgunixsocket[0] != '\0')
+			return conn->pgunixsocket;
+		else
+			return DEFAULT_PGSOCKET_DIR;
 #else
 		return DefaultHost;
 #endif
@@ -5550,6 +5564,18 @@ PQsetErrorVerbosity(PGconn *conn, PGVerbosity verbosity)
 		return PQERRORS_DEFAULT;
 	old = conn->verbosity;
 	conn->verbosity = verbosity;
+	return old;
+}
+
+PGContextVisibility
+PQsetErrorContextVisibility(PGconn *conn, PGContextVisibility show_context)
+{
+	PGContextVisibility old;
+
+	if (!conn)
+		return PQSHOW_CONTEXT_ERRORS;
+	old = conn->show_context;
+	conn->show_context = show_context;
 	return old;
 }
 

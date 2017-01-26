@@ -1,8 +1,8 @@
 /*----------------------------------------------------------------------
  * test_ddl_deparse.c
- * 		Support functions for the test_ddl_deparse module
+ *		Support functions for the test_ddl_deparse module
  *
- * Copyright (C) 2014-2015, PostgreSQL Global Development Group
+ * Copyright (c) 2014-2016, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  src/test/modules/test_ddl_deparse/test_ddl_deparse.c
@@ -274,6 +274,12 @@ get_altertable_subcmdtypes(PG_FUNCTION_ARGS)
 				break;
 			case AT_DisableRowSecurity:
 				strtype = "DISABLE ROW SECURITY";
+				break;
+			case AT_ForceRowSecurity:
+				strtype = "FORCE ROW SECURITY";
+				break;
+			case AT_NoForceRowSecurity:
+				strtype = "NO FORCE ROW SECURITY";
 				break;
 			case AT_GenericOptions:
 				strtype = "SET OPTIONS";

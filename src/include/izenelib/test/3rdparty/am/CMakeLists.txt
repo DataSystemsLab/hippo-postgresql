@@ -1,3 +1,0 @@
-ADD_SUBDIRECTORY(leveldb)
-ADD_SUBDIRECTORY(google)
-ADD_SUBDIRECTORY(concurrent_hash)

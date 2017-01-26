@@ -375,8 +375,7 @@ ecpg_get_data(const PGresult *results, int act_tuple, int act_field, int lineno,
 #ifdef HAVE_STRTOULL
 				case ECPGt_unsigned_long_long:
 					*((unsigned long long int *) (var + offset * act_tuple)) = strtoull(pval, &scan_length, 10);
-					if ((isarray && *scan_length != ',' && *scan_length != '}')
-						|| (!isarray && !(INFORMIX_MODE(compat) && *scan_length == '.') && *scan_length != '\0' && *scan_length != ' '))		/* Garbage left */
+					if (garbage_left(isarray, scan_length, compat))
 					{
 						ecpg_raise(lineno, ECPG_UINT_FORMAT, ECPG_SQLSTATE_DATATYPE_MISMATCH, pval);
 						return (false);
@@ -423,27 +422,13 @@ ecpg_get_data(const PGresult *results, int act_tuple, int act_field, int lineno,
 				case ECPGt_bool:
 					if (pval[0] == 'f' && pval[1] == '\0')
 					{
-						if (offset == sizeof(char))
-							*((char *) (var + offset * act_tuple)) = false;
-						else if (offset == sizeof(int))
-							*((int *) (var + offset * act_tuple)) = false;
-						else
-							ecpg_raise(lineno, ECPG_CONVERT_BOOL,
-									   ECPG_SQLSTATE_DATATYPE_MISMATCH,
-									   NULL);
+						*((bool *) (var + offset * act_tuple)) = false;
 						pval++;
 						break;
 					}
 					else if (pval[0] == 't' && pval[1] == '\0')
 					{
-						if (offset == sizeof(char))
-							*((char *) (var + offset * act_tuple)) = true;
-						else if (offset == sizeof(int))
-							*((int *) (var + offset * act_tuple)) = true;
-						else
-							ecpg_raise(lineno, ECPG_CONVERT_BOOL,
-									   ECPG_SQLSTATE_DATATYPE_MISMATCH,
-									   NULL);
+						*((bool *) (var + offset * act_tuple)) = true;
 						pval++;
 						break;
 					}

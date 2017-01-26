@@ -1,3 +1,4 @@
+SET enable_seqscan = OFF;
 create table hippo_tbl(id int8, id2 int8, payload text);
 insert into hippo_tbl(id, id2, payload) select i, random()*1000000, repeat('a', 100) from generate_series (1,100000) i;
 Alter table hippo_tbl alter column id2 set statistics 10000;

@@ -4,7 +4,7 @@
  *	  internal structures for hash joins
  *
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/executor/hashjoin.h
@@ -131,7 +131,7 @@ typedef struct HashJoinTableData
 	int			nbuckets_original;		/* # buckets when starting the first
 										 * hash */
 	int			nbuckets_optimal;		/* optimal # buckets (per batch) */
-	int			log2_nbuckets_optimal;	/* same as log2_nbuckets optimal */
+	int			log2_nbuckets_optimal;	/* log2(nbuckets_optimal) */
 
 	/* buckets[i] is head of list of tuples in i'th in-memory bucket */
 	struct HashJoinTupleData **buckets;

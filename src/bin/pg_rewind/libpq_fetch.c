@@ -3,7 +3,7 @@
  * libpq_fetch.c
  *	  Functions for fetching files from a remote server.
  *
- * Copyright (c) 2013-2015, PostgreSQL Global Development Group
+ * Copyright (c) 2013-2016, PostgreSQL Global Development Group
  *
  *-------------------------------------------------------------------------
  */
@@ -49,6 +49,7 @@ void
 libpqConnect(const char *connstr)
 {
 	char	   *str;
+	PGresult   *res;
 
 	conn = PQconnectdb(connstr);
 	if (PQstatus(conn) == CONNECTION_BAD)
@@ -77,6 +78,19 @@ libpqConnect(const char *connstr)
 	if (strcmp(str, "on") != 0)
 		pg_fatal("full_page_writes must be enabled in the source server\n");
 	pg_free(str);
+
+	/*
+	 * Although we don't do any "real" updates, we do work with a temporary
+	 * table. We don't care about synchronous commit for that. It doesn't
+	 * otherwise matter much, but if the server is using synchronous
+	 * replication, and replication isn't working for some reason, we don't
+	 * want to get stuck, waiting for it to start working again.
+	 */
+	res = PQexec(conn, "SET synchronous_commit = off");
+	if (PQresultStatus(res) != PGRES_COMMAND_OK)
+		pg_fatal("could not set up connection context: %s",
+				 PQresultErrorMessage(res));
+	PQclear(res);
 }
 
 /*
@@ -120,7 +134,7 @@ libpqGetCurrentXlogInsertLocation(void)
 	val = run_simple_query("SELECT pg_current_xlog_insert_location()");
 
 	if (sscanf(val, "%X/%X", &hi, &lo) != 2)
-		pg_fatal("unrecognized result \"%s\" for current XLOG insert location\n", val);
+		pg_fatal("unrecognized result \"%s\" for current WAL insert location\n", val);
 
 	result = ((uint64) hi) << 32 | lo;
 
@@ -248,7 +262,7 @@ receiveFileChunks(const char *sql)
 				continue;		/* final zero-row result */
 
 			default:
-				pg_fatal("unexpected result while fetching remote files: %s\n",
+				pg_fatal("unexpected result while fetching remote files: %s",
 						 PQresultErrorMessage(res));
 		}
 
@@ -300,7 +314,7 @@ receiveFileChunks(const char *sql)
 		if (PQgetisnull(res, 0, 2))
 		{
 			pg_log(PG_DEBUG,
-			  "received NULL chunk for file \"%s\", file has been deleted\n",
+				   "received null value for chunk for file \"%s\", file has been deleted\n",
 				   filename);
 			pg_free(filename);
 			PQclear(res);

@@ -3,7 +3,7 @@
  * pg_recvlogical.c - receive data from a logical decoding slot in a streaming
  *					  fashion and write it to a local file.
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *		  src/bin/pg_basebackup/pg_recvlogical.c
@@ -15,6 +15,9 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#ifdef HAVE_SYS_SELECT_H
+#include <sys/select.h>
+#endif
 
 /* local includes */
 #include "streamutil.h"
@@ -76,7 +79,7 @@ usage(void)
 	printf(_("  -f, --file=FILE        receive log into this file, - for stdout\n"));
 	printf(_("  -F  --fsync-interval=SECS\n"
 			 "                         time between fsyncs to the output file (default: %d)\n"), (fsync_interval / 1000));
-	printf(_("      --if-not-exists    do not treat naming conflicts as an error when creating a slot\n"));
+	printf(_("      --if-not-exists    do not error if slot already exists when creating a slot\n"));
 	printf(_("  -I, --startpos=LSN     where in an existing slot should the streaming start\n"));
 	printf(_("  -n, --no-loop          do not loop on connection lost\n"));
 	printf(_("  -o, --option=NAME[=VALUE]\n"
@@ -359,6 +362,14 @@ StreamLogicalLog(void)
 			int64		fsync_target = 0;
 			struct timeval timeout;
 			struct timeval *timeoutptr = NULL;
+
+			if (PQsocket(conn) < 0)
+			{
+				fprintf(stderr,
+						_("%s: invalid socket: %s"),
+						progname, PQerrorMessage(conn));
+				goto error;
+			}
 
 			FD_ZERO(&input_mask);
 			FD_SET(PQsocket(conn), &input_mask);
@@ -645,7 +656,7 @@ main(int argc, char **argv)
 	char	   *db_name;
 
 	progname = get_progname(argv[0]);
-	set_pglocale_pgservice(argv[0], PG_TEXTDOMAIN("pg_recvlogical"));
+	set_pglocale_pgservice(argv[0], PG_TEXTDOMAIN("pg_basebackup"));
 
 	if (argc > 1)
 	{
@@ -853,8 +864,8 @@ main(int argc, char **argv)
 
 	/*
 	 * Obtain a connection to server. This is not really necessary but it
-	 * helps to get more precise error messages about authentification,
-	 * required GUC parameters and such.
+	 * helps to get more precise error messages about authentication, required
+	 * GUC parameters and such.
 	 */
 	conn = GetConnection();
 	if (!conn)

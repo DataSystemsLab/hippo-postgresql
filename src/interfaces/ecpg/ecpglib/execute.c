@@ -1,7 +1,7 @@
 /* src/interfaces/ecpg/ecpglib/execute.c */
 
 /*
- * The aim is to get a simpler inteface to the database routines.
+ * The aim is to get a simpler interface to the database routines.
  * All the tidieous messing around with tuples is supposed to be hidden
  * by this function.
  */
@@ -752,18 +752,8 @@ ecpg_store_input(const int lineno, const bool force_indicator, const struct vari
 				{
 					strcpy(mallocedval, "{");
 
-					if (var->offset == sizeof(char))
-						for (element = 0; element < asize; element++)
-							sprintf(mallocedval + strlen(mallocedval), "%c,", (((char *) var->value)[element]) ? 't' : 'f');
-
-					/*
-					 * this is necessary since sizeof(C++'s bool)==sizeof(int)
-					 */
-					else if (var->offset == sizeof(int))
-						for (element = 0; element < asize; element++)
-							sprintf(mallocedval + strlen(mallocedval), "%c,", (((int *) var->value)[element]) ? 't' : 'f');
-					else
-						ecpg_raise(lineno, ECPG_CONVERT_BOOL, ECPG_SQLSTATE_DATATYPE_MISMATCH, NULL);
+					for (element = 0; element < asize; element++)
+						sprintf(mallocedval + strlen(mallocedval), "%c,", (((bool *) var->value)[element]) ? 't' : 'f');
 
 					strcpy(mallocedval + strlen(mallocedval) - 1, "}");
 				}

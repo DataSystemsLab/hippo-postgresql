@@ -9,7 +9,7 @@
  *	  polluting the namespace with lots of stuff...
  *
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/c.h
@@ -167,6 +167,17 @@
 #define dummyret	void
 #else
 #define dummyret	char
+#endif
+
+/* Which __func__ symbol do we have, if any? */
+#ifdef HAVE_FUNCNAME__FUNC
+#define PG_FUNCNAME_MACRO	__func__
+#else
+#ifdef HAVE_FUNCNAME__FUNCTION
+#define PG_FUNCNAME_MACRO	__FUNCTION__
+#else
+#define PG_FUNCNAME_MACRO	NULL
+#endif
 #endif
 
 /* ----------------------------------------------------------------
@@ -332,11 +343,6 @@ typedef unsigned PG_INT128_TYPE uint128;
 /* Select timestamp representation (float8 or int64) */
 #ifdef USE_INTEGER_DATETIMES
 #define HAVE_INT64_TIMESTAMP
-#endif
-
-/* sig_atomic_t is required by ANSI C, but may be missing on old platforms */
-#ifndef HAVE_SIG_ATOMIC_T
-typedef int sig_atomic_t;
 #endif
 
 /*
@@ -1056,9 +1062,9 @@ extern int	vsnprintf(char *str, size_t count, const char *fmt, va_list args);
 /*
  * When there is no sigsetjmp, its functionality is provided by plain
  * setjmp. Incidentally, nothing provides setjmp's functionality in
- * that case.
+ * that case.  We now support the case only on Windows.
  */
-#ifndef HAVE_SIGSETJMP
+#ifdef WIN32
 #define sigjmp_buf jmp_buf
 #define sigsetjmp(x,y) setjmp(x)
 #define siglongjmp longjmp

@@ -136,7 +136,7 @@ typedef enum T_Action
 	ACT_RESTORE
 } T_Action;
 
-typedef void (*ClosePtr) (ArchiveHandle *AH, DumpOptions *dopt);
+typedef void (*ClosePtr) (ArchiveHandle *AH);
 typedef void (*ReopenPtr) (ArchiveHandle *AH);
 typedef void (*ArchiveEntryPtr) (ArchiveHandle *AH, TocEntry *te);
 
@@ -157,13 +157,13 @@ typedef void (*SaveArchivePtr) (ArchiveHandle *AH);
 typedef void (*WriteExtraTocPtr) (ArchiveHandle *AH, TocEntry *te);
 typedef void (*ReadExtraTocPtr) (ArchiveHandle *AH, TocEntry *te);
 typedef void (*PrintExtraTocPtr) (ArchiveHandle *AH, TocEntry *te);
-typedef void (*PrintTocDataPtr) (ArchiveHandle *AH, TocEntry *te, RestoreOptions *ropt);
+typedef void (*PrintTocDataPtr) (ArchiveHandle *AH, TocEntry *te);
 
 typedef void (*ClonePtr) (ArchiveHandle *AH);
 typedef void (*DeClonePtr) (ArchiveHandle *AH);
 
 typedef char *(*WorkerJobRestorePtr) (ArchiveHandle *AH, TocEntry *te);
-typedef char *(*WorkerJobDumpPtr) (ArchiveHandle *AH, DumpOptions *dopt, TocEntry *te);
+typedef char *(*WorkerJobDumpPtr) (ArchiveHandle *AH, TocEntry *te);
 typedef char *(*MasterStartParallelItemPtr) (ArchiveHandle *AH, TocEntry *te,
 														 T_Action act);
 typedef int (*MasterEndParallelItemPtr) (ArchiveHandle *AH, TocEntry *te,
@@ -285,6 +285,9 @@ struct _archiveHandle
 	char	   *savedPassword;	/* password for ropt->username, if known */
 	char	   *use_role;
 	PGconn	   *connection;
+	/* If connCancel isn't NULL, SIGINT handler will send a cancel */
+	PGcancel   *volatile connCancel;
+
 	int			connectToDB;	/* Flag to indicate if direct DB connection is
 								 * required */
 	ArchiverOutput outputKind;	/* Flag for what we're currently writing */
@@ -314,9 +317,6 @@ struct _archiveHandle
 								 * 1-9 levels for gzip compression */
 	ArchiveMode mode;			/* File mode - r or w */
 	void	   *formatData;		/* Header data specific to file format */
-
-	RestoreOptions *ropt;		/* Used to check restore options in ahwrite
-								 * etc */
 
 	/* these vars track state to avoid sending redundant SET commands */
 	char	   *currUser;		/* current username, or NULL if unknown */
@@ -386,8 +386,8 @@ extern void WriteHead(ArchiveHandle *AH);
 extern void ReadHead(ArchiveHandle *AH);
 extern void WriteToc(ArchiveHandle *AH);
 extern void ReadToc(ArchiveHandle *AH);
-extern void WriteDataChunks(ArchiveHandle *AH, DumpOptions *dopt, struct ParallelState *pstate);
-extern void WriteDataChunksForTocEntry(ArchiveHandle *AH, DumpOptions *dopt, TocEntry *te);
+extern void WriteDataChunks(ArchiveHandle *AH, struct ParallelState *pstate);
+extern void WriteDataChunksForTocEntry(ArchiveHandle *AH, TocEntry *te);
 extern ArchiveHandle *CloneArchive(ArchiveHandle *AH);
 extern void DeCloneArchive(ArchiveHandle *AH);
 

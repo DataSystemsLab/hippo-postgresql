@@ -13,7 +13,7 @@
  *	plan --- consider improving this someday.
  *
  *
- * Portions Copyright (c) 1996-2015, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
  *
  * src/backend/utils/adt/ri_triggers.c
  *
@@ -40,9 +40,11 @@
 #include "commands/trigger.h"
 #include "executor/executor.h"
 #include "executor/spi.h"
+#include "lib/ilist.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_relation.h"
 #include "miscadmin.h"
+#include "storage/bufmgr.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
@@ -125,6 +127,7 @@ typedef struct RI_ConstraintInfo
 												 * PK) */
 	Oid			ff_eq_oprs[RI_MAX_NUMKEYS];		/* equality operators (FK =
 												 * FK) */
+	dlist_node	valid_link;		/* Link in list of valid entries */
 } RI_ConstraintInfo;
 
 
@@ -185,6 +188,8 @@ typedef struct RI_CompareHashEntry
 static HTAB *ri_constraint_cache = NULL;
 static HTAB *ri_query_cache = NULL;
 static HTAB *ri_compare_cache = NULL;
+static dlist_head ri_constraint_cache_valid_list;
+static int	ri_constraint_cache_valid_count = 0;
 
 
 /* ----------
@@ -282,20 +287,17 @@ RI_FKey_check(TriggerData *trigdata)
 	 * We should not even consider checking the row if it is no longer valid,
 	 * since it was either deleted (so the deferred check should be skipped)
 	 * or updated (in which case only the latest version of the row should be
-	 * checked).  Test its liveness according to SnapshotSelf.
-	 *
-	 * NOTE: The normal coding rule is that one must acquire the buffer
-	 * content lock to call HeapTupleSatisfiesVisibility.  We can skip that
-	 * here because we know that AfterTriggerExecute just fetched the tuple
-	 * successfully, so there cannot be a VACUUM compaction in progress on the
-	 * page (either heap_fetch would have waited for the VACUUM, or the
-	 * VACUUM's LockBufferForCleanup would be waiting for us to drop pin). And
-	 * since this is a row inserted by our open transaction, no one else can
-	 * be entitled to change its xmin/xmax.
+	 * checked).  Test its liveness according to SnapshotSelf.  We need pin
+	 * and lock on the buffer to call HeapTupleSatisfiesVisibility.  Caller
+	 * should be holding pin, but not lock.
 	 */
-	Assert(new_row_buf != InvalidBuffer);
+	LockBuffer(new_row_buf, BUFFER_LOCK_SHARE);
 	if (!HeapTupleSatisfiesVisibility(new_row, SnapshotSelf, new_row_buf))
+	{
+		LockBuffer(new_row_buf, BUFFER_LOCK_UNLOCK);
 		return PointerGetDatum(NULL);
+	}
+	LockBuffer(new_row_buf, BUFFER_LOCK_UNLOCK);
 
 	/*
 	 * Get the relation descriptors of the FK and PK tables.
@@ -2924,6 +2926,13 @@ ri_LoadConstraintInfo(Oid constraintOid)
 
 	ReleaseSysCache(tup);
 
+	/*
+	 * For efficient processing of invalidation messages below, we keep a
+	 * doubly-linked list, and a count, of all currently valid entries.
+	 */
+	dlist_push_tail(&ri_constraint_cache_valid_list, &riinfo->valid_link);
+	ri_constraint_cache_valid_count++;
+
 	riinfo->valid = true;
 
 	return riinfo;
@@ -2936,21 +2945,41 @@ ri_LoadConstraintInfo(Oid constraintOid)
  * gets enough update traffic that it's probably worth being smarter.
  * Invalidate any ri_constraint_cache entry associated with the syscache
  * entry with the specified hash value, or all entries if hashvalue == 0.
+ *
+ * Note: at the time a cache invalidation message is processed there may be
+ * active references to the cache.  Because of this we never remove entries
+ * from the cache, but only mark them invalid, which is harmless to active
+ * uses.  (Any query using an entry should hold a lock sufficient to keep that
+ * data from changing under it --- but we may get cache flushes anyway.)
  */
 static void
 InvalidateConstraintCacheCallBack(Datum arg, int cacheid, uint32 hashvalue)
 {
-	HASH_SEQ_STATUS status;
-	RI_ConstraintInfo *hentry;
+	dlist_mutable_iter iter;
 
 	Assert(ri_constraint_cache != NULL);
 
-	hash_seq_init(&status, ri_constraint_cache);
-	while ((hentry = (RI_ConstraintInfo *) hash_seq_search(&status)) != NULL)
+	/*
+	 * If the list of currently valid entries gets excessively large, we mark
+	 * them all invalid so we can empty the list.  This arrangement avoids
+	 * O(N^2) behavior in situations where a session touches many foreign keys
+	 * and also does many ALTER TABLEs, such as a restore from pg_dump.
+	 */
+	if (ri_constraint_cache_valid_count > 1000)
+		hashvalue = 0;			/* pretend it's a cache reset */
+
+	dlist_foreach_modify(iter, &ri_constraint_cache_valid_list)
 	{
-		if (hentry->valid &&
-			(hashvalue == 0 || hentry->oidHashValue == hashvalue))
-			hentry->valid = false;
+		RI_ConstraintInfo *riinfo = dlist_container(RI_ConstraintInfo,
+													valid_link, iter.cur);
+
+		if (hashvalue == 0 || riinfo->oidHashValue == hashvalue)
+		{
+			riinfo->valid = false;
+			/* Remove invalidated entries from the list, too */
+			dlist_delete(iter.cur);
+			ri_constraint_cache_valid_count--;
+		}
 	}
 }
 
@@ -2970,7 +2999,6 @@ ri_PlanCheck(const char *querystr, int nargs, Oid *argtypes,
 	Relation	query_rel;
 	Oid			save_userid;
 	int			save_sec_context;
-	int			temp_sec_context;
 
 	/*
 	 * Use the query type code to determine whether the query is run against
@@ -2983,22 +3011,9 @@ ri_PlanCheck(const char *querystr, int nargs, Oid *argtypes,
 
 	/* Switch to proper UID to perform check as */
 	GetUserIdAndSecContext(&save_userid, &save_sec_context);
-
-	/*
-	 * Row-level security should be disabled in the case where a foreign-key
-	 * relation is queried to check existence of tuples that references the
-	 * primary-key being modified.
-	 */
-	temp_sec_context = save_sec_context | SECURITY_LOCAL_USERID_CHANGE;
-	if (qkey->constr_queryno == RI_PLAN_CHECK_LOOKUPPK
-		|| qkey->constr_queryno == RI_PLAN_CHECK_LOOKUPPK_FROM_PK
-		|| qkey->constr_queryno == RI_PLAN_RESTRICT_DEL_CHECKREF
-		|| qkey->constr_queryno == RI_PLAN_RESTRICT_UPD_CHECKREF)
-		temp_sec_context |= SECURITY_ROW_LEVEL_DISABLED;
-
-
 	SetUserIdAndSecContext(RelationGetForm(query_rel)->relowner,
-						   temp_sec_context);
+						   save_sec_context | SECURITY_LOCAL_USERID_CHANGE |
+						   SECURITY_NOFORCE_RLS);
 
 	/* Create the plan */
 	qplan = SPI_prepare(querystr, nargs, argtypes);
@@ -3118,7 +3133,8 @@ ri_PerformCheck(const RI_ConstraintInfo *riinfo,
 	/* Switch to proper UID to perform check as */
 	GetUserIdAndSecContext(&save_userid, &save_sec_context);
 	SetUserIdAndSecContext(RelationGetForm(query_rel)->relowner,
-						   save_sec_context | SECURITY_LOCAL_USERID_CHANGE);
+						   save_sec_context | SECURITY_LOCAL_USERID_CHANGE |
+						   SECURITY_NOFORCE_RLS);
 
 	/* Finally we can run the query. */
 	spi_result = SPI_execute_snapshot(qplan,
