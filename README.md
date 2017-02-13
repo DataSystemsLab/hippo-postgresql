@@ -1,6 +1,6 @@
 
 
-#Hippo
+# Hippo
 
 [![Build Status](https://travis-ci.org/jiayuasu/hippo-postgresql.svg?branch=master)](https://travis-ci.org/jiayuasu/hippo-postgresql)
 
@@ -18,14 +18,14 @@ Hippo is a fast, yet scalable, sparse database indexing approach. In contrast to
 
 
 
-#Play around with Hippo index
+# Play around with Hippo index
 
 For the ease of testing, we have implemented Hippo index into PostgreSQL kernel as one of the backend access methods. This verision has been tested on Ubuntu Linux LTS 14.04.
 
 
 ## Download the source code
 ```
-$ git clone https://github.com/Sarwat/hippo-postgresql.git
+$ git clone https://github.com/DataSystemsLab/hippo-postgresql.git
 ```
 ## Build and Installation
 Once you've synced with GitHub, the folder should contain the source code for PostgreSQL. The build and installation steps are exactly same with official PostgreSQL.
@@ -139,16 +139,21 @@ Please read Hippo index test SQL script for some examples.
 ./src/test/regress/results/hippo_random.out
 ```
 
-#Hippo Video Demonstration
+# Hippo Video Demonstration
 Want to have a try? Do not hesitate! 
 
-Watch this video (No need for headsets) and learn how to get started: [Hippo Video Demonstration (on remote computer)](http://www.public.asu.edu/~jiayu2/video/hippodemovideo.html) or [Hippo Video Demonstration (on Youtube)](https://youtu.be/KKGucqX3ndQ).
+Watch this video (No need for headsets) and learn how to get started: [Hippo Video Demonstration (on remote computer)](http://www.public.asu.edu/~jiayu2/hippo/hippo-icde17-demo-video.mp4) or [Hippo Video Demonstration (on Youtube)](https://www.youtube.com/watch?v=wWaOK2-9k9A).
 
 # Publication
 
-Jia Yu, Mohamed Sarwat. ["Two Birds, One Stone: A Fast, yet Lightweight, Indexing Scheme for Modern Database Systems"](http://www.vldb.org/pvldb/vol10/p385-yu.pdf). (Research paper) 
+**Hippo in Action: Scalable Indexing of a Billion New York City Taxi Trips and Beyond** (Demo paper) [(PDF)](http://www.public.asu.edu/~jiayu2/hippo/publication/ICDE17_demo_739.pdf)
 
-In Proceeding of the 43rd International Conference on Very Large Data Bases VLDB 2017, Munich, Germany, August 2017
+Jia Yu, Raha Moraffah, Mohamed Sarwat. In Proceedings of the IEEE International Conference on Data Engineering, ICDE 2017, San Diego, CA, USA, April 2017
+
+
+ **Two Birds, One Stone: A Fast, yet Lightweight, Indexing Scheme for Modern Database Systems** (Research paper) [(PDF)](http://www.vldb.org/pvldb/vol10/p385-yu.pdf)
+ 
+Jia Yu, Mohamed Sarwat. In proceedings of the Very Large Data Bases Endowment, PVLDB 2016, Volume 10, Issue 4.  To be presented in VLDB 2017, Munich, Germany, August 2017
 
 # Contact
 
@@ -161,7 +166,7 @@ In Proceeding of the 43rd International Conference on Very Large Data Bases VLDB
 Hippo index is one of the projects under [DataSys Lab](http://www.datasyslab.org/) at Arizona State University. The mission of DataSys Lab is designing and developing experimental data management systems (e.g., database systems).
 
 ***
-#PostgreSQL Database Management System
+# PostgreSQL Database Management System
 
 
 This directory contains the source code distribution of the PostgreSQL
