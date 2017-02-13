@@ -146,14 +146,13 @@ Watch this video (No need for headsets) and learn how to get started: [Hippo Vid
 
 # Publication
 
-**Hippo in Action: Scalable Indexing of a Billion New York City Taxi Trips and Beyond** (Demo paper) [(PDF)](http://www.public.asu.edu/~jiayu2/hippo/publication/ICDE17_demo_739.pdf)
+* **Hippo in Action: Scalable Indexing of a Billion New York City Taxi Trips and Beyond** (Demo paper) [(PDF)](http://www.public.asu.edu/~jiayu2/hippo/publication/ICDE17_demo_739.pdf)
 
-Jia Yu, Raha Moraffah, Mohamed Sarwat. In Proceedings of the IEEE International Conference on Data Engineering, ICDE 2017, San Diego, CA, USA, April 2017
+  Jia Yu, Raha Moraffah, Mohamed Sarwat. In Proceedings of the IEEE International Conference on Data Engineering, ICDE 2017, San Diego, CA, USA, April 2017
+  
+*  **Two Birds, One Stone: A Fast, yet Lightweight, Indexing Scheme for Modern Database Systems** (Research paper) [(PDF)](http://www.vldb.org/pvldb/vol10/p385-yu.pdf)
 
-
- **Two Birds, One Stone: A Fast, yet Lightweight, Indexing Scheme for Modern Database Systems** (Research paper) [(PDF)](http://www.vldb.org/pvldb/vol10/p385-yu.pdf)
- 
-Jia Yu, Mohamed Sarwat. In proceedings of the Very Large Data Bases Endowment, PVLDB 2016, Volume 10, Issue 4.  To be presented in VLDB 2017, Munich, Germany, August 2017
+  Jia Yu, Mohamed Sarwat. In proceedings of the Very Large Data Bases Endowment, PVLDB 2016, Volume 10, Issue 4.  To be presented in VLDB 2017, Munich, Germany, August 2017
 
 # Contact
 
