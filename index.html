@@ -35,7 +35,7 @@
 <h1>
 <a id="play-around-with-hippo-index" class="anchor" href="#play-around-with-hippo-index" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Play around with Hippo index</h1>
 
-<p>For the ease of testing, we have implemented Hippo index into PostgreSQL kernel (9.5 Alpha 2) as one of the backend access methods. This verision has been tested on Ubuntu Linux LTS 14.04.</p>
+<p>For the ease of testing, we have implemented Hippo index into PostgreSQL kernel (9.6.1) as one of the backend access methods. This verision has been tested on Ubuntu Linux LTS 14.04/16.04.</p>
 
 <h2>
 <a id="download-the-source-code" class="anchor" href="#download-the-source-code" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Download the source code</h2>
@@ -137,39 +137,6 @@ VACUUM;
 <pre><code>&lt;, &lt;=, =, &gt;=, &gt;
 </code></pre>
 
-<h2>
-<a id="notes" class="anchor" href="#notes" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Notes</h2>
-
-<p>Currently, due to the conflicts between Hippo index and PostgreSQL kernel, Hippo only works on the temporary postmaster server which is built in PostgreSQL Regression Test Mode. We are still striving to release it in PostgreSQL Production Mode.</p>
-
-<p>For using Hippo in PostgreSQL Regression Test Mode, you need to</p>
-
-<ul>
-<li>Read and change Hippo index test SQL script:</li>
-</ul>
-
-<pre><code>./src/test/regress/sql/hippo.sql (Default)
-
-./src/test/regress/sql/hippo_random.sql
-</code></pre>
-
-<ul>
-<li>View Hippo index test SQL script output:</li>
-</ul>
-
-<pre><code>./src/test/regress/results/hippo.out (Default)
-
-./src/test/regress/results/hippo_random.out
-</code></pre>
-
-<ul>
-<li>Modify Regression Test schedule if necessary</li>
-</ul>
-
-<pre><code>./src/test/regress/parallel_schedule
-</code></pre>
-
-<p>For example, you can change "ignore: hippo_random" to "test: hippo_random". This will execute a random Hippo index test and the test may fail due to unpredicted results. The failure is normal.</p>
 
 <h1>
 <a id="hippo-video-demonstration" class="anchor" href="#hippo-video-demonstration" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Hippo Video Demonstration</h1>
@@ -181,9 +148,13 @@ VACUUM;
 <h1>
 <a id="publication" class="anchor" href="#publication" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Publication</h1>
 
-<p>Jia Yu, Mohamed Sarwat. <a href="">"Hippo: A Fast, yet Scalable Database Indexing Approach"</a>. (Full research paper) </p>
+<p>Jia Yu, Raha Moraffah, Mohamed Sarwat. <a href="">"Hippo in Action: Scalable Indexing of a Billion New York City Taxi Trips and Beyond"</a>. (Demo paper) </p>
 
-<p>(To appear) In Proceeding of the 43rd International Conference on Very Large Data Bases VLDB 2017, Munich, Germany, August 2017</p>
+<p>(To appear) In Proceedings of the IEEE International Conference on Data Engineering, ICDE 2017, San Diego, CA, USA, April 2017</p>
+
+<p>Jia Yu, Mohamed Sarwat. <a href="">"Hippo: A Fast, yet Scalable Database Indexing Approach"</a>. (Research paper) </p>
+
+<p>In proceedings of the Very Large Data Bases Endowment, PVLDB 2016, Volume 10, Issue 4. To be presented in VLDB 2017, Munich, Germany, August 2017</p>
 
 <h1>
 <a id="contact" class="anchor" href="#contact" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Contact</h1>
