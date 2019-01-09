@@ -139,20 +139,28 @@ Please read Hippo index test SQL script for some examples.
 ./src/test/regress/results/hippo_random.out
 ```
 
-# Hippo Video Demonstration
+# Hippo Tutorial
+
+## Step-by-step video
 Want to have a try? Do not hesitate! 
 
-Watch this video (No need for headsets) and learn how to get started: [Hippo Video Demonstration (on remote computer)](http://www.public.asu.edu/~jiayu2/hippo/hippo-icde17-demo-video.mp4) or [Hippo Video Demonstration (on Youtube)](https://www.youtube.com/watch?v=wWaOK2-9k9A).
+Watch this video (No need for headsets) and learn how to get started: [Hippo Video Tutorial (on remote computer)](http://www.public.asu.edu/~jiayu2/hippo/hippo-icde17-demo-video.mp4) or [Hippo Video Tutorial (on Youtube)](https://www.youtube.com/watch?v=wWaOK2-9k9A).
+
+## Video Demonstration using Hippo-Spatial
+
+Watch this demo video presented in ICDE 2017 to know how we use Hippo-Spatial to build a map application - [ICDE2017 demo](https://www.youtube.com/watch?v=wWaOK2-9k9A).
+
+## Talk in VLDB2017
+
+Watch this presentation video to grasp the core concepts of Hippo - [VLDB2017 presentation](http://www.public.asu.edu/~jiayu2/video/vldb2017-presentation.mp4).
 
 # Publication
 
-* **Hippo in Action: Scalable Indexing of a Billion New York City Taxi Trips and Beyond** (Demo paper) [(PDF)](http://www.public.asu.edu/~jiayu2/hippo/publication/ICDE17_demo_739.pdf)
+* Jia Yu, Mohamed Sarwat. **Indexing the pickup and drop-off locations of NYC taxi trips in PostgreSQL - lessons from the road** (Research paper) [(PDF)](http://www.public.asu.edu/~jiayu2/hippo/publication/hippo_sstd_2017.pdf) In Proceedings of the International Symposium on Advances in Spatial and Temporal Databases, SSTD 2017, Washington D.C., USA, August 2017
 
-  Jia Yu, Raha Moraffah, Mohamed Sarwat. In Proceedings of the IEEE International Conference on Data Engineering, ICDE 2017, San Diego, CA, USA, April 2017
+* Jia Yu, Raha Moraffah, Mohamed Sarwat. **Hippo in Action: Scalable Indexing of a Billion New York City Taxi Trips and Beyond** (Demo paper) [(PDF)](http://www.public.asu.edu/~jiayu2/hippo/publication/ICDE17_demo_739.pdf) In Proceedings of the IEEE International Conference on Data Engineering, ICDE 2017, San Diego, CA, USA, April 2017
   
-*  **Two Birds, One Stone: A Fast, yet Lightweight, Indexing Scheme for Modern Database Systems** (Research paper) [(PDF)](http://www.vldb.org/pvldb/vol10/p385-yu.pdf)
-
-  Jia Yu, Mohamed Sarwat. In proceedings of the Very Large Data Bases Endowment, PVLDB 2016, Volume 10, Issue 4.  To be presented in VLDB 2017, Munich, Germany, August 2017
+*  Jia Yu, Mohamed Sarwat. **Two Birds, One Stone: A Fast, yet Lightweight, Indexing Scheme for Modern Database Systems** (Research paper) [(PDF)](http://www.vldb.org/pvldb/vol10/p385-yu.pdf) In proceedings of the Very Large Data Bases Endowment, PVLDB 2016, Volume 10, Issue 4.  To be presented in VLDB 2017, Munich, Germany, August 2017
 
 # Contact
 
